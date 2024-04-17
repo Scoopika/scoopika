@@ -3,7 +3,7 @@ import google from "./google";
 
 const hosts = {
   openai,
-  google
-}
+  google,
+};
 
 export default hosts;

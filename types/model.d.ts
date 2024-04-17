@@ -27,7 +27,10 @@ interface LLMFunctionBaseInputs {
   tools: Tool[];
   messages: LLMHistory[];
   tool_choice?: string;
-  response_format?: ToolParameters;
+  response_format?: {
+    type: "json_object";
+    schema: ToolParameters;
+  };
   options: Record<string, any>;
 }
 
@@ -51,6 +54,7 @@ interface LLMTextResponse {
   type: "text";
   content: string;
   tool_calls?: LLMToolCall[];
+  follow_up_history?: any[];
 }
 
 interface LLMImageResponse {
@@ -70,7 +74,7 @@ const Google = require("@google/generative-ai").GenerativeGoogleAI;
 
 interface OpenAIClient {
   host: "openai";
-  client: OpenAI
+  client: OpenAI;
 }
 
 interface GoogleClient {
@@ -81,13 +85,19 @@ interface GoogleClient {
 type LLMClient = OpenAIClient | GoogleClient;
 
 interface LLMHost {
-  model_role: "assistant" | "model",
-  system_role: "user" | "system",
+  helpers: Record<string, Function>;
+  model_role: "assistant" | "model";
+  system_role: "user" | "system";
   text: (
     run_id: string,
     client,
     stream: StreamFunc,
-    inputs: LLMFunctionBaseInputs
-  ) => Promise<LLMResponse>;
+    inputs: LLMFunctionBaseInputs,
+  ) => Promise<LLMTextResponse>;
   image: (client, inputs: LLMFunctionImageInputs) => Promise<LLMResponse>;
+  json: (
+    client,
+    inputs: LLMFunctionBaseInputs,
+    schema: ToolParameters,
+  ) => Promise<LLMJsonResponse>;
 }

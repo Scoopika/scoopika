@@ -13,7 +13,7 @@ function setupInputs(
   };
 
   if (response_format) {
-    inputs.response_format = { type: "json_object", schema: response_format };
+     inputs.response_format = response_format;
   }
 
   if (tools.length > 0) {

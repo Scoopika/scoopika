@@ -4,24 +4,32 @@ import mixHistory from "./lib/mix_history";
 import new_error from "./lib/error";
 import promptToTool from "./lib/prompt_to_tool";
 import hosts from "./models/hosts";
+import { sleep } from "openai/core";
 
 class PromptChain {
   responses: Record<string, string> = {};
   saved_prompts: Record<string, string> = {};
-  clients: Record<string, LLMClient>;
+  clients: LLMClient[];
   prompts: Prompt[];
   tools: ToolSchema[];
   session: StoreSession;
   stream: StreamFunc;
   statusUpdate: StatusUpdateFunc;
 
-  constructor({ session, clients, stream, statusUpdate, prompts, tools }: {
-    session: StoreSession,
-    clients: Record<string, LLMClient>,
-    stream: StreamFunc,
-    statusUpdate: StatusUpdateFunc,
-    prompts: Prompt[],
-    tools: ToolSchema[],
+  constructor({
+    session,
+    clients,
+    stream,
+    statusUpdate,
+    prompts,
+    tools,
+  }: {
+    session: StoreSession;
+    clients: LLMClient[];
+    stream: StreamFunc;
+    statusUpdate: StatusUpdateFunc;
+    prompts: Prompt[];
+    tools: ToolSchema[];
   }) {
     this.session = session;
     this.clients = clients;
@@ -31,13 +39,30 @@ class PromptChain {
     this.tools = tools;
   }
 
-  async run(run_id: string, inputs: Inputs, history: LLMHistory[]) {
+  async run({
+    run_id, inputs, history, wanted_responses, timeout
+  }:{
+    run_id: string, 
+    inputs: Inputs, 
+    history: LLMHistory[],
+    wanted_responses?: string[],
+    timeout?: number
+  }) {
     const prompts = this.prompts.sort((a, b) => a.index - b.index);
     const responses: Record<string, LLMResponse> = {};
+    const updated_history: LLMHistory[] = [];
 
-    for (const prompt of prompts) {
+    const updateHistory = (new_history: LLMHistory): undefined => {
+      const mixed_history = history[history.length-1] + mixHistory([new_history]);
+      history[history.length-1] = {
+        ...history[history.length-1],
+        content: mixed_history
+      };
+      updated_history.push(new_history);
+    }
+
+    for await (const prompt of prompts) {
       const { client, validated_prompt } = await this.setupPrompt(
-        run_id,
         prompt,
         inputs,
         history,
@@ -62,21 +87,53 @@ class PromptChain {
         });
       }
 
-      const model = new Model(client, prompt);
-      const llmOutput = await this.runPrompt(run_id, model, validated_prompt, messages);
+      const model = new Model(client, prompt, this.tools);
+      const llmOutput = await this.runPrompt(
+        run_id,
+        model,
+        updateHistory,
+        validated_prompt,
+        messages,
+        timeout
+      );
 
       inputs[prompt.variable_name] = llmOutput.content as Input;
       responses[prompt.variable_name] = llmOutput;
+
+      if (timeout) {
+        await sleep(timeout);
+      }
     }
 
-    return responses;
+    if (!wanted_responses || wanted_responses.length < 1) {
+      return responses;
+    }
+
+    let results: Record<string, LLMResponse> = {};
+    wanted_responses.map(wanted_response => {
+      const response = responses[wanted_response];
+
+      if (!response) {
+        throw new Error(new_error(
+          "invalid_wanted_response",
+          `The wanted response ${wanted_response} is not available`,
+          "prompt chain results"
+        ))
+      }
+
+      results[wanted_response] = response;
+    })
+
+    return results;
   }
 
   async runPrompt(
     run_id: string,
     model: Model,
+    updateHistory: (history: LLMHistory) => undefined,
     validated_prompt: string,
     messages: LLMHistory[],
+    timeout?: number
   ): Promise<LLMResponse> {
     const prompt_type = model.prompt.type;
 
@@ -91,7 +148,6 @@ class PromptChain {
 
     if (prompt_type === "json") {
       const json = this.jsonMode(
-        run_id,
         model.client,
         model.prompt,
         model.prompt.inputs,
@@ -100,17 +156,16 @@ class PromptChain {
       return { type: "object", content: json };
     }
 
-    return model.baseRun(run_id, this.stream, {
+    return model.baseRun(run_id, this.stream, updateHistory, {
       model: model.prompt.model,
       options: model.prompt.options,
       messages,
-      tools: this.tools.map(tool => tool.tool),
+      tools: this.tools.map((tool) => tool.tool),
       tool_choice: model.prompt.tool_choice,
-    });
+    }, timeout);
   }
 
   async setupPrompt(
-    run_id: string,
     prompt: Prompt,
     inputs: Inputs,
     history: LLMHistory[],
@@ -118,8 +173,8 @@ class PromptChain {
     client: LLMClient;
     validated_prompt: string;
   }> {
-    const client = this.clients[prompt.llm_client];
-    if (!client) {
+    const wanted_clients = this.clients.filter(client => client.host === prompt.llm_client);
+    if (wanted_clients.length < 1) {
       throw new Error(
         new_error(
           "no_client",
@@ -129,6 +184,8 @@ class PromptChain {
       );
     }
 
+    const client = wanted_clients[0];
+
     if (this.prompts.length === 0 && this.saved_prompts[prompt.variable_name]) {
       const validated_prompt = this.saved_prompts[prompt.variable_name];
       return { client, validated_prompt };
@@ -137,7 +194,6 @@ class PromptChain {
     const built_prompt: BuiltPrompt = buildPrompt(prompt, inputs);
 
     const validated_prompt = await this.validatePrompt(
-      run_id,
       prompt,
       built_prompt,
       inputs.message,
@@ -151,7 +207,6 @@ class PromptChain {
   }
 
   async validatePrompt(
-    run_id: string,
     prompt: Prompt,
     built: BuiltPrompt,
     inputText: Input | undefined,
@@ -182,16 +237,26 @@ class PromptChain {
       },
     ];
 
+    const wanted_clients = this.clients.filter(client => client.host === prompt.llm_client);
+
+    if (wanted_clients.length < 1) {
+      throw new Error(new_error(
+        "invalid_llm_client",
+        `The wanted client ${prompt.llm_client} is not available`,
+        "Json mode"
+      ))
+    }
+
+    const original_missing = JSON.stringify(missing);
     const extracted_inputs = await this.jsonMode(
-      run_id,
-      this.clients[prompt.llm_client],
+      wanted_clients[0],
       prompt,
-      missing,
+      [ ...missing ],
       `Context:\n${context}\n` + mixHistory(messages),
     );
 
     const new_built_prompt = buildPrompt(
-      { ...prompt, inputs: missing },
+      { ...prompt, inputs: JSON.parse(original_missing) },
       extracted_inputs,
     );
 
@@ -209,47 +274,29 @@ class PromptChain {
   }
 
   async jsonMode(
-    run_id: string,
     client: LLMClient,
     prompt: Prompt,
     inputs: PromptInput[],
     context: string,
   ): Promise<Inputs> {
-    const model = new Model(client, prompt);
-    const response = await model.baseRun(run_id, this.stream, {
-      model: prompt.model,
-      tools: [],
-      options: prompt.options,
-      messages: [
-        {
-          role: "system",
-          content: "Your role is to extract JSON data from the context.",
-        },
-        { role: "user", content: context },
-      ],
-      response_format: promptToTool(prompt, inputs).tool.function.parameters,
-    });
+    const model = new Model(client, prompt, this.tools);
+    const response = await model.jsonRun(
+      {
+        model: prompt.model,
+        tools: [],
+        options: prompt.options,
+        messages: [
+          {
+            role: "system",
+            content: "Your role is to extract JSON data from the context.",
+          },
+          { role: "user", content: context },
+        ],
+      },
+      promptToTool(prompt, inputs).tool.function.parameters
+    );
 
-    console.log(response);
-
-    if (!response.content || typeof response.content !== "string") {
-      throw new Error(
-        new_error("invalid_json", "Invalid LLM JSON output", "json mode"),
-      );
-    }
-
-    try {
-      const jsonOutput = JSON.parse(response.content);
-      return jsonOutput as Inputs;
-    } catch {
-      throw new Error(
-        new_error(
-          "invalid_llm_output",
-          "Invalid LLM JSON output",
-          "json mode validation",
-        ),
-      );
-    }
+    return response.content as Inputs;
   }
 }
 

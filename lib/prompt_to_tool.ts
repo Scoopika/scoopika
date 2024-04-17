@@ -3,7 +3,7 @@ function promptToTool(
   inputs: PromptInput[],
 ): { tool: Tool; name: string } {
   const properties: Record<string, Parameter> = {};
-  const required: Array<string> = [];
+  const required: string[] = [];
 
   inputs.map((input) => {
     if (input.required) {
@@ -11,6 +11,7 @@ function promptToTool(
     }
     delete input.required;
     properties[input.id] = input;
+    delete (properties[input.id] as any).id;
   });
 
   const tool: Tool = {

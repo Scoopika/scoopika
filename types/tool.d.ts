@@ -17,7 +17,7 @@ interface Tool {
 
 interface FunctionToolSchema {
   type: "function";
-  executor: ((inputs: Record<string, any>) => any | Promise<any>);
+  executor: (inputs: Record<string, any>) => any | Promise<any>;
   tool: Tool;
 }
 
