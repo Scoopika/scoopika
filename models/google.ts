@@ -55,9 +55,6 @@ const google: LLMHost = {
       history = history.slice(0, history.length - 1);
     }
 
-    console.log(history);
-    console.log("input:", input);
-
     const chat = model.startChat({
       history: history,
       generationConfig: model_inputs.generationConfig,
@@ -66,9 +63,6 @@ const google: LLMHost = {
     const response = await chat.sendMessageStream(
       input
     );
-
-
-    // TODO: We need to run the tools from inside here... and return executed_tools
 
     let response_message = "";
     let tool_calls: LLMToolCall[] = [];
