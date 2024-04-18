@@ -1,7 +1,7 @@
 function setupInputs(
   current_inputs: LLMFunctionBaseInputs,
 ): LLMCompletionInputs {
-  let { messages, model, tool_choice, tools, response_format } = current_inputs;
+  let { messages, model, tool_choice, tools, response_format, options } = current_inputs;
 
   if (!tool_choice) {
     tool_choice = "auto";
@@ -10,6 +10,7 @@ function setupInputs(
   const inputs: LLMCompletionInputs = {
     model,
     messages: messages as any,
+    options
   };
 
   if (response_format) {

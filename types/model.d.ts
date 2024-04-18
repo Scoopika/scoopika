@@ -14,6 +14,7 @@ interface LLMCompletionBaseInputs {
   response_format?: LLMResponseFormat;
   tools?: Tool[];
   tool_choice?: string;
+  options?: Record<string, any>;
 }
 
 interface LLMCompletionToolsInputs extends LLMCompletionBaseInputs {

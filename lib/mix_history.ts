@@ -4,8 +4,12 @@ function mixHistory(history: LLMHistory[]): string {
       return `${item.name} (User): ${item.content}`;
     }
 
-    if (item.role === "assistant") {
+    if (item.role === "assistant" || item.role === "model") {
       return `${item.name} (AI assistant): ${item.content}`;
+    }
+
+    if (item.role === "tool") {
+      return `Executed tool (${item.name}) with results: ${item.content}`;
     }
 
     return `${item.name}: ${item.content}`;

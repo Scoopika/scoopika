@@ -16,11 +16,15 @@ const openai: LLMHost = {
     inputs: LLMFunctionBaseInputs,
   ): Promise<LLMTextResponse> => {
     const completion_inputs = setupInputs(inputs);
+    
+    const options_string = JSON.stringify(completion_inputs.options);
+    delete completion_inputs.options;
+
     const response = await client.chat.completions.create({
       ...(completion_inputs as ChatCompletionCreateParamsStreaming),
       stream: true,
-      ...inputs.options,
-    });
+      ...JSON.parse(options_string),
+    } as ChatCompletionCreateParamsStreaming);
 
     let response_message: string = "";
     let tool_calls: LLMToolCall[] | undefined = [];

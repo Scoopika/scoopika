@@ -7,36 +7,45 @@ import hosts from "./models/hosts";
 import { sleep } from "openai/core";
 
 class PromptChain {
-  responses: Record<string, string> = {};
-  saved_prompts: Record<string, string> = {};
-  clients: LLMClient[];
-  prompts: Prompt[];
-  tools: ToolSchema[];
-  session: StoreSession;
-  stream: StreamFunc;
-  statusUpdate: StatusUpdateFunc;
+  public saved_prompts: Record<string, string> = {};
+  private clients: LLMClient[];
+  private prompts: Prompt[];
+  private tools: ToolSchema[];
+  private session: StoreSession;
+  private stream: StreamFunc;
+  private statusUpdate: StatusUpdateFunc;
+  private agent: AgentData;
 
   constructor({
     session,
+    agent,
     clients,
     stream,
     statusUpdate,
     prompts,
     tools,
+    saved_prompts
   }: {
     session: StoreSession;
+    agent: AgentData;
     clients: LLMClient[];
     stream: StreamFunc;
     statusUpdate: StatusUpdateFunc;
     prompts: Prompt[];
     tools: ToolSchema[];
+    saved_prompts?: Record<string, string>
   }) {
     this.session = session;
+    this.agent = agent;
     this.clients = clients;
     this.stream = stream;
     this.statusUpdate = statusUpdate;
     this.prompts = prompts;
     this.tools = tools;
+
+    if (saved_prompts) {
+      this.saved_prompts = saved_prompts;
+    }
   }
 
   async run({
@@ -47,18 +56,30 @@ class PromptChain {
     history: LLMHistory[],
     wanted_responses?: string[],
     timeout?: number
-  }) {
+  }): Promise<{
+    responses: Record<string, LLMResponse>,
+    updated_history: LLMHistory[]
+  }> {
     const prompts = this.prompts.sort((a, b) => a.index - b.index);
     const responses: Record<string, LLMResponse> = {};
     const updated_history: LLMHistory[] = [];
 
+    // TODO: We should never mix history from here
+
     const updateHistory = (new_history: LLMHistory): undefined => {
-      const mixed_history = history[history.length-1] + mixHistory([new_history]);
+      if (!new_history.name) {
+        new_history.name = this.agent.name;
+      }
+      updated_history.push(new_history);
+      if (history.length < 1) {
+        history.push(new_history);
+        return;
+      }
+      const mixed_history = history[history.length-1].content + "\n" + mixHistory([new_history]);
       history[history.length-1] = {
         ...history[history.length-1],
         content: mixed_history
       };
-      updated_history.push(new_history);
     }
 
     for await (const prompt of prompts) {
@@ -76,8 +97,11 @@ class PromptChain {
           role: is_conversational ? hosts[client.host].system_role : "user",
           content: validated_prompt,
         },
-        ...history,
       ];
+
+      if (history.length > 0) {
+        messages.push({ role: "user", content: mixHistory(history) });
+      }
 
       if (is_conversational) {
         messages.push({
@@ -99,6 +123,9 @@ class PromptChain {
 
       inputs[prompt.variable_name] = llmOutput.content as Input;
       responses[prompt.variable_name] = llmOutput;
+      if (llmOutput.type === "text") {
+        updateHistory({ role: "model", content: llmOutput.content });
+      }
 
       if (timeout) {
         await sleep(timeout);
@@ -106,7 +133,7 @@ class PromptChain {
     }
 
     if (!wanted_responses || wanted_responses.length < 1) {
-      return responses;
+      return { responses: responses, updated_history };
     }
 
     let results: Record<string, LLMResponse> = {};
@@ -124,7 +151,7 @@ class PromptChain {
       results[wanted_response] = response;
     })
 
-    return results;
+    return { responses: results, updated_history};
   }
 
   async runPrompt(
@@ -185,12 +212,6 @@ class PromptChain {
     }
 
     const client = wanted_clients[0];
-
-    if (this.prompts.length === 0 && this.saved_prompts[prompt.variable_name]) {
-      const validated_prompt = this.saved_prompts[prompt.variable_name];
-      return { client, validated_prompt };
-    }
-
     const built_prompt: BuiltPrompt = buildPrompt(prompt, inputs);
 
     const validated_prompt = await this.validatePrompt(
@@ -203,6 +224,7 @@ class PromptChain {
     if (prompt.conversational) {
       this.saved_prompts[prompt.variable_name] = validated_prompt;
     }
+
     return { client, validated_prompt };
   }
 
@@ -216,6 +238,11 @@ class PromptChain {
     const missing = built.missing;
     if (missing.length === 0) {
       return built.content;
+    }
+
+    if (prompt.conversational !== false && this.saved_prompts[prompt.variable_name]) {
+      const saved_prompt = this.saved_prompts[prompt.variable_name];
+      return saved_prompt;
     }
 
     if (!json_mode) {

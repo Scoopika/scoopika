@@ -35,8 +35,13 @@ async function loadAgent(id: string): Promise<AgentData> {
   };
 }
 
+async function loadClients(): Promise<LLMClient[]> {
+  return [];
+}
+
 const api = {
   loadAgent,
+  loadClients
 };
 
 export default api;

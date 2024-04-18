@@ -4,8 +4,10 @@ interface AgentData {
   avatar?: string;
   description: string;
   chained: boolean;
-  prompts: Array<Prompt>;
-  tools: Tool[];
+  prompts: Prompt[];
+  timeout?: number;
+  tools: ToolSchema[];
+  wanted_responses?: string[];
 }
 
 interface StreamMessage {

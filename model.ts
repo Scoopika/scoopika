@@ -45,6 +45,8 @@ class Model {
       ...this.updated_history
     ];
 
+    // console.log(messages);
+
     const output = await this.host.text(
       run_id,
       this.client.client,
