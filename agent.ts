@@ -4,34 +4,39 @@ import PromptChain from "./prompt_chain";
 import InMemoryStore from "./store";
 import StateStore from "./state";
 import crypto from "node:crypto";
-import mixHistory from "./lib/mix_history";
-import { warn } from "node:console";
 
 class Agent {
   public clients: LLMClient[] = [];
   public agent: AgentData | null = null;
   private id: string;
   private url: string = config.api_url;
-  private prompt_chain: PromptChain | null = null;
   private store: InMemoryStore;
   private stateStore: StateStore;
   private loadedSessions: StoreSession[] = [];
   private standalone: boolean;
-  private saved_prompts: Record<string, string> = {};
+  private saved_prompts: Record<string, Record<string, string>> = {};
 
+  streamFunc: StreamFunc | undefined;
   stream_listeners: ((message: StreamMessage) => any)[] = [];
-  private status_listeners: ((status: string) => undefined)[] = [];
-  private tool_calls_listeners: ((data: ToolCalledMessage) => undefined)[] = [];
+  status_listeners: ((status: string) => undefined)[] = [];
+  tool_calls_listeners: ((data: ToolCalledMessage) => undefined)[] = [];
 
   constructor({
-    id, agent, llmClients, stateStore, store, standalone
+    id,
+    agent,
+    llmClients,
+    stateStore,
+    store,
+    standalone,
+    streamFunc,
   }: {
-    id: string,
-    agent?: AgentData,
-    llmClients?: LLMClient[],
-    stateStore?: StateStore,
-    store?: InMemoryStore,
-    standalone?: boolean
+    id: string;
+    agent?: AgentData;
+    llmClients?: LLMClient[];
+    stateStore?: StateStore;
+    store?: InMemoryStore;
+    standalone?: boolean;
+    streamFunc?: StreamFunc;
   }) {
     if (!stateStore) {
       stateStore = new StateStore();
@@ -56,17 +61,20 @@ class Agent {
     if (llmClients) {
       this.clients = llmClients;
     }
+
+    this.streamFunc = streamFunc;
   }
 
   // Sessions
 
   public async newSession(session_id: string, user_name?: string) {
     await this.store.newSession(session_id, user_name);
-    this.loadedSessions.push({ id: session_id, user_name });
+    this.loadedSessions.push({ id: session_id, user_name, saved_prompts: {} });
+    this.saved_prompts[session_id] = {};
   }
 
   private async getSession(id: string): Promise<StoreSession> {
-    const loaded = this.loadedSessions.filter(s => s.id === id);
+    const loaded = this.loadedSessions.filter((s) => s.id === id);
     let session: StoreSession;
 
     if (loaded.length > 0) {
@@ -89,11 +97,12 @@ class Agent {
   }
 
   public async run({
-    session_id, inputs, 
+    session_id,
+    inputs,
   }: {
-    session_id: string,
-    inputs: Inputs,
-  }) {
+    session_id: string;
+    inputs: Inputs;
+  }): Promise<AgentResponse> {
     if (!this.agent) {
       await this.loadAgent();
     }
@@ -104,10 +113,80 @@ class Agent {
 
     const agent = this.agent as AgentData;
     const session = await this.getSession(session_id);
+    const run_id = "run_" + crypto.randomUUID();
 
     if (this.agent?.chained) {
-      return await this.chain_run({ session, agent, inputs });
+      const run = await this.chainRun({ run_id, session, agent, inputs });
+      await this.store.batchPushHistory(session, run.updated_history);
+
+      return {
+        run_id,
+        session_id: session.id,
+        responses: run.responses,
+      };
     }
+  }
+
+  async chainRun({
+    run_id,
+    session,
+    agent,
+    inputs,
+  }: AgentRunInputs): Promise<AgentRunResult> {
+    const prompt_chain = new PromptChain({
+      session,
+      agent,
+      clients: this.clients,
+      stream: this.getStreamFunc(),
+      statusUpdate: this.updateStatus,
+      tools: agent.tools,
+      prompts: agent.prompts,
+      saved_prompts: this.saved_prompts[session.id] || {},
+    });
+
+    const history = this.setupHistory(
+      session,
+      inputs,
+      await this.store.getHistory(session),
+    );
+
+    const run = await prompt_chain.run({
+      run_id,
+      inputs,
+      history,
+      wanted_responses: agent.wanted_responses,
+      timeout: agent.timeout,
+    });
+
+    this.updateSavedPrompts(session, prompt_chain.saved_prompts);
+
+    const updated_history = run.updated_history.map((h) => {
+      if (h.role === "model") {
+        h.name = agent.name;
+      }
+
+      return h;
+    });
+
+    if (typeof inputs.message === "string") {
+      updated_history.unshift({
+        role: "user",
+        content: String(inputs.message),
+        name: session.user_name || "User",
+      });
+    }
+
+    await this.store.batchPushHistory(session, updated_history);
+
+    return run;
+  }
+
+  updateSavedPrompts(
+    session: StoreSession,
+    new_prompts: Record<string, string>,
+  ) {
+    this.saved_prompts[session.id] = new_prompts;
+    this.store.updateSession(session.id, { saved_prompts: new_prompts });
   }
 
   setupHistory(session: StoreSession, inputs: Inputs, history: LLMHistory[]) {
@@ -121,70 +200,22 @@ class Agent {
     history.push({
       role: "user",
       name: session.user_name || "User",
-      content
+      content,
     });
 
     return history;
   }
 
-  async chain_run({
-    session, agent, inputs
-  }: {
-    session: StoreSession,
-    agent: AgentData,
-    inputs: Inputs
-  }): Promise<Record<string, LLMResponse>> {
-    const prompt_chain = new PromptChain({
-      session,
-      agent,
-      clients: this.clients,
-      stream: this.getStreamFunc(),
-      statusUpdate: this.updateStatus,
-      tools: agent.tools,
-      prompts: agent.prompts,
-      saved_prompts: this.saved_prompts
-    });
-
-    const history = this.setupHistory(session, inputs, await this.store.getHistory(session));
-    const run = await prompt_chain.run({
-      run_id: `run_${crypto.randomUUID()}`,
-      inputs,
-      history,
-      wanted_responses: agent.wanted_responses,
-      timeout: agent.timeout,
-    })
-
-    this.saved_prompts = prompt_chain.saved_prompts;
-    console.log(this.saved_prompts);
-
-    const updated_history = run.updated_history.map(h => {
-      if (h.role === "model") {
-        h.name = agent.name;
-      }
-
-      return h;
-    })
-
-    if (typeof inputs.message === "string") {
-      updated_history.unshift({
-        role: "user",
-        content: String(inputs.message),
-        name: session.user_name || "User"
-      });
-    }
-
-    // TODO: The history is not working well. CAREFUL.
-
-    await this.store.batchPushHistory(session, updated_history);
-
-    return run.responses;
-  }
-
   getStreamFunc(): StreamFunc {
+    if (this.streamFunc) {
+      return this.streamFunc;
+    }
     const listeners = this.stream_listeners;
     return (message: StreamMessage) => {
-      listeners.map(listener => { listener(message); });
-    }
+      listeners.map((listener) => {
+        listener(message);
+      });
+    };
   }
 
   private updateStatus(status: string): undefined {
@@ -194,7 +225,7 @@ class Agent {
   }
 
   private toolCalled(data: ToolCalledMessage): undefined {
-    this.tool_calls_listeners.map(listener => listener(data)); 
+    this.tool_calls_listeners.map((listener) => listener(data));
   }
 
   public on({ type, func }: OnListener): undefined {

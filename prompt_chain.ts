@@ -24,7 +24,7 @@ class PromptChain {
     statusUpdate,
     prompts,
     tools,
-    saved_prompts
+    saved_prompts,
   }: {
     session: StoreSession;
     agent: AgentData;
@@ -33,7 +33,7 @@ class PromptChain {
     statusUpdate: StatusUpdateFunc;
     prompts: Prompt[];
     tools: ToolSchema[];
-    saved_prompts?: Record<string, string>
+    saved_prompts?: Record<string, string>;
   }) {
     this.session = session;
     this.agent = agent;
@@ -49,22 +49,21 @@ class PromptChain {
   }
 
   async run({
-    run_id, inputs, history, wanted_responses, timeout
-  }:{
-    run_id: string, 
-    inputs: Inputs, 
-    history: LLMHistory[],
-    wanted_responses?: string[],
-    timeout?: number
-  }): Promise<{
-    responses: Record<string, LLMResponse>,
-    updated_history: LLMHistory[]
-  }> {
+    run_id,
+    inputs,
+    history,
+    wanted_responses,
+    timeout,
+  }: {
+    run_id: string;
+    inputs: Inputs;
+    history: LLMHistory[];
+    wanted_responses?: string[];
+    timeout?: number;
+  }): Promise<AgentRunResult> {
     const prompts = this.prompts.sort((a, b) => a.index - b.index);
     const responses: Record<string, LLMResponse> = {};
     const updated_history: LLMHistory[] = [];
-
-    // TODO: We should never mix history from here
 
     const updateHistory = (new_history: LLMHistory): undefined => {
       if (!new_history.name) {
@@ -75,12 +74,13 @@ class PromptChain {
         history.push(new_history);
         return;
       }
-      const mixed_history = history[history.length-1].content + "\n" + mixHistory([new_history]);
-      history[history.length-1] = {
-        ...history[history.length-1],
-        content: mixed_history
+      const mixed_history =
+        history[history.length - 1].content + "\n" + mixHistory([new_history]);
+      history[history.length - 1] = {
+        ...history[history.length - 1],
+        content: mixed_history,
       };
-    }
+    };
 
     for await (const prompt of prompts) {
       const { client, validated_prompt } = await this.setupPrompt(
@@ -118,7 +118,7 @@ class PromptChain {
         updateHistory,
         validated_prompt,
         messages,
-        timeout
+        timeout,
       );
 
       inputs[prompt.variable_name] = llmOutput.content as Input;
@@ -137,21 +137,23 @@ class PromptChain {
     }
 
     let results: Record<string, LLMResponse> = {};
-    wanted_responses.map(wanted_response => {
+    wanted_responses.map((wanted_response) => {
       const response = responses[wanted_response];
 
       if (!response) {
-        throw new Error(new_error(
-          "invalid_wanted_response",
-          `The wanted response ${wanted_response} is not available`,
-          "prompt chain results"
-        ))
+        throw new Error(
+          new_error(
+            "invalid_wanted_response",
+            `The wanted response ${wanted_response} is not available`,
+            "prompt chain results",
+          ),
+        );
       }
 
       results[wanted_response] = response;
-    })
+    });
 
-    return { responses: results, updated_history};
+    return { responses: results, updated_history };
   }
 
   async runPrompt(
@@ -160,7 +162,7 @@ class PromptChain {
     updateHistory: (history: LLMHistory) => undefined,
     validated_prompt: string,
     messages: LLMHistory[],
-    timeout?: number
+    timeout?: number,
   ): Promise<LLMResponse> {
     const prompt_type = model.prompt.type;
 
@@ -183,13 +185,19 @@ class PromptChain {
       return { type: "object", content: json };
     }
 
-    return model.baseRun(run_id, this.stream, updateHistory, {
-      model: model.prompt.model,
-      options: model.prompt.options,
-      messages,
-      tools: this.tools.map((tool) => tool.tool),
-      tool_choice: model.prompt.tool_choice,
-    }, timeout);
+    return model.baseRun(
+      run_id,
+      this.stream,
+      updateHistory,
+      {
+        model: model.prompt.model,
+        options: model.prompt.options,
+        messages,
+        tools: this.tools.map((tool) => tool.tool),
+        tool_choice: model.prompt.tool_choice,
+      },
+      timeout,
+    );
   }
 
   async setupPrompt(
@@ -200,7 +208,9 @@ class PromptChain {
     client: LLMClient;
     validated_prompt: string;
   }> {
-    const wanted_clients = this.clients.filter(client => client.host === prompt.llm_client);
+    const wanted_clients = this.clients.filter(
+      (client) => client.host === prompt.llm_client,
+    );
     if (wanted_clients.length < 1) {
       throw new Error(
         new_error(
@@ -221,7 +231,7 @@ class PromptChain {
       mixHistory(history),
     );
 
-    if (prompt.conversational) {
+    if (prompt.conversational !== false) {
       this.saved_prompts[prompt.variable_name] = validated_prompt;
     }
 
@@ -240,7 +250,10 @@ class PromptChain {
       return built.content;
     }
 
-    if (prompt.conversational !== false && this.saved_prompts[prompt.variable_name]) {
+    if (
+      prompt.conversational !== false &&
+      this.saved_prompts[prompt.variable_name]
+    ) {
       const saved_prompt = this.saved_prompts[prompt.variable_name];
       return saved_prompt;
     }
@@ -264,21 +277,25 @@ class PromptChain {
       },
     ];
 
-    const wanted_clients = this.clients.filter(client => client.host === prompt.llm_client);
+    const wanted_clients = this.clients.filter(
+      (client) => client.host === prompt.llm_client,
+    );
 
     if (wanted_clients.length < 1) {
-      throw new Error(new_error(
-        "invalid_llm_client",
-        `The wanted client ${prompt.llm_client} is not available`,
-        "Json mode"
-      ))
+      throw new Error(
+        new_error(
+          "invalid_llm_client",
+          `The wanted client ${prompt.llm_client} is not available`,
+          "Json mode",
+        ),
+      );
     }
 
     const original_missing = JSON.stringify(missing);
     const extracted_inputs = await this.jsonMode(
       wanted_clients[0],
       prompt,
-      [ ...missing ],
+      [...missing],
       `Context:\n${context}\n` + mixHistory(messages),
     );
 
@@ -320,7 +337,7 @@ class PromptChain {
           { role: "user", content: context },
         ],
       },
-      promptToTool(prompt, inputs).tool.function.parameters
+      promptToTool(prompt, inputs).tool.function.parameters,
     );
 
     return response.content as Inputs;

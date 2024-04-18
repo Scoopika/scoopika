@@ -1,5 +1,4 @@
 class StateStore {
-
   state: Record<string, 0 | 1> = {};
 
   constructor() {}
@@ -11,7 +10,6 @@ class StateStore {
   getState(id: string) {
     return this.state[id];
   }
-
 }
 
 export default StateStore;

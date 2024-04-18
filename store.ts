@@ -7,7 +7,7 @@ class InMemoryStore {
   constructor() {}
 
   checkSession(session: StoreSession): undefined {
-    const sessions = this.sessions.filter(s => s.id === session.id);
+    const sessions = this.sessions.filter((s) => s.id === session.id);
     if (sessions.length < 1 || !this.history[session.id]) {
       throw new Error(
         new_error(
@@ -20,23 +20,38 @@ class InMemoryStore {
   }
 
   async newSession(id: string, user_name?: string) {
-    this.sessions.push({ id, user_name });
+    this.sessions.push({ id, user_name, saved_prompts: {} });
     this.history[id] = [];
   }
 
   async getSession(id: string): Promise<StoreSession> {
-    const wanted_sessions = this.sessions.filter(s => s.id === id);
+    const wanted_sessions = this.sessions.filter((s) => s.id === id);
 
     if (wanted_sessions.length < 1) {
-      throw new Error(new_error(
-        "session_not_found",
-        `The session with ID ${id} is not found in session store.
+      throw new Error(
+        new_error(
+          "session_not_found",
+          `The session with ID ${id} is not found in session store.
         make sure to create a new session first`,
-        "Get session"
-      ))
+          "Get session",
+        ),
+      );
     }
 
     return wanted_sessions[0];
+  }
+
+  async updateSession(
+    id: string,
+    new_data: {
+      user_name?: string;
+      saved_prompts?: Record<string, string>;
+    },
+  ) {
+    const session = await this.getSession(id);
+    const new_session = { ...session, ...new_data };
+
+    this.sessions[this.sessions.indexOf(session)] = new_session;
   }
 
   async getHistory(session: StoreSession) {
@@ -61,7 +76,6 @@ class InMemoryStore {
       await this.pushHistory(session, h);
     }
   }
-
 }
 
 export default InMemoryStore;

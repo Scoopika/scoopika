@@ -1,6 +1,7 @@
 interface StoreSession {
   id: string;
   user_name?: string;
+  saved_prompts: Record<string, string>;
 }
 
 interface ContentHistory {

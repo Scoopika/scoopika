@@ -9,16 +9,16 @@ test("LLM inputs with no tools", () => {
     tools: [],
     options: {},
     messages: [
-      {role: "user", content: "Hello"},
-      {role: "model", content: "Hey"}
-    ]
-  })
+      { role: "user", content: "Hello" },
+      { role: "model", content: "Hey" },
+    ],
+  });
 
   expect(inputs.model).toBe("test_model");
   expect(inputs.tools).toBe(undefined);
   expect(inputs.tool_choice).toBe(undefined);
   expect(inputs.messages.length).toBe(2);
-})
+});
 
 test("LLM inputs with tools", () => {
   const inputs = setupInputs({
@@ -38,17 +38,17 @@ test("LLM inputs with tools", () => {
                 type: "string",
               },
             },
-            required: ["input"]
+            required: ["input"],
           },
-        }
-      }
-    ]
-  })
+        },
+      },
+    ],
+  });
 
   expect(typeof inputs.tools).toBe("object");
   expect(inputs.tools?.length).toBe(1);
   expect(inputs.tool_choice).toBe("auto");
-})
+});
 
 test("LLM inputs with schema", () => {
   const inputs = setupInputs({
@@ -61,13 +61,13 @@ test("LLM inputs with schema", () => {
       schema: {
         type: "object",
         properties: {
-          input: { type: "string" }
+          input: { type: "string" },
         },
-        required: ["input"]
-      }
-    }
-  })
+        required: ["input"],
+      },
+    },
+  });
 
   expect(inputs.response_format?.type).toBe("json_object");
   expect(typeof inputs.response_format?.schema).toBe("object");
-})
+});

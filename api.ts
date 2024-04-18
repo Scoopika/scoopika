@@ -41,7 +41,7 @@ async function loadClients(): Promise<LLMClient[]> {
 
 const api = {
   loadAgent,
-  loadClients
+  loadClients,
 };
 
 export default api;

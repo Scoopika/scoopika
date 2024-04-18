@@ -12,8 +12,8 @@ class ToolRun {
     if (typeof result === "object") {
       return JSON.stringify(result);
     }
-    
-    return JSON.stringify({result});
+
+    return JSON.stringify({ result });
   }
 
   async execute(): Promise<{ result: string }> {

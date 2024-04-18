@@ -16,7 +16,7 @@ const openai: LLMHost = {
     inputs: LLMFunctionBaseInputs,
   ): Promise<LLMTextResponse> => {
     const completion_inputs = setupInputs(inputs);
-    
+
     const options_string = JSON.stringify(completion_inputs.options);
     delete completion_inputs.options;
 
@@ -73,22 +73,26 @@ const openai: LLMHost = {
     console.log(response.content);
 
     if (!response.content || response.content.length < 1) {
-      throw new Error(new_error(
-        "Invalid LLM response",
-        "Expected LLM response to be a JSON. please make sure you're not using tools to prompt chains",
-        "Json mode"
-      ));
+      throw new Error(
+        new_error(
+          "Invalid LLM response",
+          "Expected LLM response to be a JSON. please make sure you're not using tools to prompt chains",
+          "Json mode",
+        ),
+      );
     }
 
     try {
       const data = JSON.parse(response.content);
-      return {type: "object", content: data};
+      return { type: "object", content: data };
     } catch {
-      throw new Error(new_error(
-        "Invalid LLM response",
-        "LLM response is not a valid JSON object",
-        "Json mode"
-      ))
+      throw new Error(
+        new_error(
+          "Invalid LLM response",
+          "LLM response is not a valid JSON object",
+          "Json mode",
+        ),
+      );
     }
   },
 

@@ -22,8 +22,7 @@ const google: LLMHost = {
     };
 
     if (
-      inputs.messages.length > 1
-      && 
+      inputs.messages.length > 1 &&
       google.helpers.modelsWithInstructions().indexOf(inputs.model) !== -1
     ) {
       model_inputs.systemInstruction = {
@@ -51,7 +50,7 @@ const google: LLMHost = {
     if (inputs.messages[inputs.messages.length - 1].role === "user") {
       input = inputs.messages[inputs.messages.length - 1].content;
     } else {
-      input = [ history[history.length - 1].parts[0] ];
+      input = [history[history.length - 1].parts[0]];
       history = history.slice(0, history.length - 1);
     }
 
@@ -60,9 +59,7 @@ const google: LLMHost = {
       generationConfig: model_inputs.generationConfig,
     });
 
-    const response = await chat.sendMessageStream(
-      input
-    );
+    const response = await chat.sendMessageStream(input);
 
     let response_message = "";
     let tool_calls: LLMToolCall[] = [];
@@ -89,17 +86,19 @@ const google: LLMHost = {
       }
     }
 
-    const follow_up_history = [{
-      role: "model",
-      follow_up: true,
-      parts: calls_messages.map(call => ({functionCall: call}))
-    }];
+    const follow_up_history = [
+      {
+        role: "model",
+        follow_up: true,
+        parts: calls_messages.map((call) => ({ functionCall: call })),
+      },
+    ];
 
     return {
       type: "text",
       content: response_message,
       tool_calls,
-      follow_up_history
+      follow_up_history,
     };
   },
 
@@ -114,9 +113,9 @@ const google: LLMHost = {
         name: "add_to_database",
         description: "Add data to a database",
         parameters: {
-          ...schema
-        }
-      }
+          ...schema,
+        },
+      },
     };
 
     const model = client.getGenerativeModel({
@@ -124,13 +123,13 @@ const google: LLMHost = {
       generationConfig: {
         temperature: 0,
       },
-      tools: [{functionDeclarations: [tool.function as any]}],
+      tools: [{ functionDeclarations: [tool.function as any] }],
       toolConfig: {
         functionCallingConfig: {
           mode: "ANY" as any,
-          allowedFunctionNames: ["add_to_database"]
-        }
-      }
+          allowedFunctionNames: ["add_to_database"],
+        },
+      },
     });
 
     const response = await model.generateContent(
@@ -169,22 +168,18 @@ const google: LLMHost = {
   },
 
   helpers: {
-
-    modelsWithInstructions: () => ([
-      "gemini-1.5-pro-latest"
-    ]),
+    modelsWithInstructions: () => ["gemini-1.5-pro-latest"],
 
     setupHistory: (inputs: LLMFunctionBaseInputs) => {
       let slice = [];
 
-      if (inputs.messages[inputs.messages.length-1].role === "user") {
+      if (inputs.messages[inputs.messages.length - 1].role === "user") {
         slice = inputs.messages.slice(0, inputs.messages.length - 1);
-      }else {
+      } else {
         slice = inputs.messages;
       }
 
       const history = slice.slice().map((message) => {
-
         if (message.follow_up) {
           delete message.follow_up;
           return message;
