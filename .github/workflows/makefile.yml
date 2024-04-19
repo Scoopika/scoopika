@@ -14,6 +14,11 @@ jobs:
     steps:
     - uses: actions/checkout@v3
 
+    - name: Create env file
+      run: |
+        touch .env
+        echo GOOGLE_API_KEY=${{secrets.GOOGLE_API_KEY}} >> .env
+
     - name: Setup and install dependencies
       run: make setup
 
