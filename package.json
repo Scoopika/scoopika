@@ -5,8 +5,8 @@
   "main": "dist/src/main.js",
   "types": "dist/index.d.ts",
   "scripts": {
-    "build": "tsc && npx vitest --watch false --testTimeout 500000 ./src",
-    "coverage": "vitest run --coverage --testTimeout 500000 ./src",
+    "build": "tsc && npx vitest --watch false --testTimeout 500000",
+    "coverage": "vitest run --coverage --testTimeout 500000",
     "prettier": "npx prettier --write ."
   },
   "author": "Kais Radwan",

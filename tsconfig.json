@@ -1,10 +1,13 @@
 {
   "compilerOptions": {
     "outDir": "./dist",
+    "rootDirs": ["./src"],
+    "typeRoots": ["./scoopika-types"],
     "module": "commonjs",
     "esModuleInterop": true,
     "forceConsistentCasingInFileNames": true,
     "strict": true,
     "skipLibCheck": true
-  }
+  },
+  "exclude": ["tests"]
 }
