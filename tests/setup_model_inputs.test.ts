@@ -1,5 +1,5 @@
 import { test, expect } from "vitest";
-import setupInputs from "../lib/setup_model_inputs";
+import setupInputs from "../src/lib/setup_model_inputs";
 import { type } from "os";
 import exp from "constants";
 

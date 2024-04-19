@@ -1,7 +1,7 @@
 import { test, expect } from "vitest";
 import { GoogleGenerativeAI } from "@google/generative-ai";
-import Agent from "../agent";
-import sleep from "../lib/sleep";
+import Agent from "../src/agent";
+import sleep from "../src/lib/sleep";
 
 const google_client = new GoogleGenerativeAI(
   process.env.GOOGLE_API_KEY as string,
@@ -69,22 +69,25 @@ test("Chained agent", async () => {
   });
 
   await agent.newSession("session1", "Kais");
-  const run = await agent.run({
+  agent.run({
     session_id: "session1",
     inputs: {
       topic: "playing guitar",
     },
   });
 
-  // expect(run)
+  // Google now has a limit of 2 req/min so we need to sleep for a minute here
   await sleep(60000);
 
-  const run2 = await agent.run({
+  const run = await agent.run({
     session_id: "session1",
     inputs: {
       message: "Can you now translate the first one to french",
     },
   });
 
-  console.log(run2);
+  expect(typeof run.responses.main3.content).toBe("string");
+  expect(typeof run.responses.descriptions.content).toBe("string");
+  expect(run.responses.main3.type).toBe("text");
+  expect(run.session_id).toBe("session1");
 });

@@ -67,10 +67,17 @@ class Agent {
 
   // Sessions
 
-  public async newSession(session_id: string, user_name?: string) {
-    await this.store.newSession(session_id, user_name);
+  public async newSession(
+    session_id: string,
+    user_name?: string,
+    add_to_store?: boolean
+  ) {
+    if (add_to_store !== false) {
+      await this.store.newSession(session_id, user_name);
+    }
     this.loadedSessions.push({ id: session_id, user_name, saved_prompts: {} });
     this.saved_prompts[session_id] = {};
+    this.stateStore.setState(session_id, 0);
   }
 
   private async getSession(id: string): Promise<StoreSession> {
@@ -115,16 +122,19 @@ class Agent {
     const session = await this.getSession(session_id);
     const run_id = "run_" + crypto.randomUUID();
 
-    if (this.agent?.chained) {
-      const run = await this.chainRun({ run_id, session, agent, inputs });
-      await this.store.batchPushHistory(session, run.updated_history);
+    await this.stateStore.queueRun(session.id, run_id, agent.timeout);
 
-      return {
-        run_id,
-        session_id: session.id,
-        responses: run.responses,
-      };
-    }
+    const { run, saved_prompts } = await this.chainRun({ run_id, session, agent, inputs });
+    await this.store.batchPushHistory(session, run.updated_history);
+    this.updateSavedPrompts(session, saved_prompts);
+
+    await this.stateStore.setState(session.id, 0);
+
+    return {
+      run_id,
+      session_id: session.id,
+      responses: run.responses,
+    };
   }
 
   async chainRun({
@@ -132,7 +142,10 @@ class Agent {
     session,
     agent,
     inputs,
-  }: AgentRunInputs): Promise<AgentRunResult> {
+  }: AgentRunInputs): Promise<{
+    run: AgentInnerRunResult,
+    saved_prompts: Record<string, string>
+  }> {
     const prompt_chain = new PromptChain({
       session,
       agent,
@@ -158,7 +171,6 @@ class Agent {
       timeout: agent.timeout,
     });
 
-    this.updateSavedPrompts(session, prompt_chain.saved_prompts);
 
     const updated_history = run.updated_history.map((h) => {
       if (h.role === "model") {
@@ -176,17 +188,15 @@ class Agent {
       });
     }
 
-    await this.store.batchPushHistory(session, updated_history);
-
-    return run;
+    return { run, saved_prompts: prompt_chain.saved_prompts };
   }
 
-  updateSavedPrompts(
+  async updateSavedPrompts(
     session: StoreSession,
     new_prompts: Record<string, string>,
   ) {
     this.saved_prompts[session.id] = new_prompts;
-    this.store.updateSession(session.id, { saved_prompts: new_prompts });
+    await this.store.updateSession(session.id, { saved_prompts: new_prompts });
   }
 
   setupHistory(session: StoreSession, inputs: Inputs, history: LLMHistory[]) {

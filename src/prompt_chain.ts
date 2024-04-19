@@ -60,7 +60,7 @@ class PromptChain {
     history: LLMHistory[];
     wanted_responses?: string[];
     timeout?: number;
-  }): Promise<AgentRunResult> {
+  }): Promise<AgentInnerRunResult> {
     const prompts = this.prompts.sort((a, b) => a.index - b.index);
     const responses: Record<string, LLMResponse> = {};
     const updated_history: LLMHistory[] = [];

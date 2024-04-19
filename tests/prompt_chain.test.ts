@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import PromptChain from "../prompt_chain";
+import PromptChain from "../src/prompt_chain";
 import OpenAI from "openai";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 

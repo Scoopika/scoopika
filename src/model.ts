@@ -1,7 +1,7 @@
 import new_error from "./lib/error";
 import { ToolRun } from "./tool";
 import hosts from "./models/hosts";
-import { sleep } from "openai/core";
+import sleep from "./lib/sleep";
 
 class Model {
   public client: LLMClient;
@@ -43,8 +43,6 @@ class Model {
       ...this.follow_up_history,
       ...this.updated_history,
     ];
-
-    // console.log(messages);
 
     const output = await this.host.text(run_id, this.client.client, stream, {
       ...inputs,
