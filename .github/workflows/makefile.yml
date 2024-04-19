@@ -17,7 +17,9 @@ jobs:
     - name: Create env file
       run: |
         touch .env
-        echo GOOGLE_API_KEY=${{secrets.GOOGLE_API_KEY}} >> .env
+        echo GOOGLE_API_KEY=$GOOGLE_API_KEY >> .env
+      env:
+        GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
 
     - name: Setup and install dependencies
       run: make setup
