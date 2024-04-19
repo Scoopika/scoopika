@@ -10,7 +10,7 @@
     "prettier": "npx prettier --write ."
   },
   "author": "Kais Radwan",
-  "license": "SCOOP",
+  "license": "SCOOP PUBLIC",
   "keywords": ["AI", "Agents", "AI Boxes"],
   "devDependencies": {
     "@types/node": "^20.12.7",
