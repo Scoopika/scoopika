@@ -5,16 +5,17 @@ import new_error from "./lib/error";
 import promptToTool from "./lib/prompt_to_tool";
 import hosts from "./models/hosts";
 import { sleep } from "openai/core";
+import * as types from "@scoopika/types";
 
 class PromptChain {
   public saved_prompts: Record<string, string> = {};
-  private clients: LLMClient[];
-  private prompts: Prompt[];
-  private tools: ToolSchema[];
-  private session: StoreSession;
-  private stream: StreamFunc;
-  private statusUpdate: StatusUpdateFunc;
-  private agent: AgentData;
+  private clients: types.LLMClient[];
+  private prompts: types.Prompt[];
+  private tools: types.ToolSchema[];
+  private session: types.StoreSession;
+  private stream: types.StreamFunc;
+  private statusUpdate: types.StatusUpdateFunc;
+  private agent: types.AgentData;
 
   constructor({
     session,
@@ -26,13 +27,13 @@ class PromptChain {
     tools,
     saved_prompts,
   }: {
-    session: StoreSession;
-    agent: AgentData;
-    clients: LLMClient[];
-    stream: StreamFunc;
-    statusUpdate: StatusUpdateFunc;
-    prompts: Prompt[];
-    tools: ToolSchema[];
+    session: types.StoreSession;
+    agent: types.AgentData;
+    clients: types.LLMClient[];
+    stream: types.StreamFunc;
+    statusUpdate: types.StatusUpdateFunc;
+    prompts: types.Prompt[];
+    tools: types.ToolSchema[];
     saved_prompts?: Record<string, string>;
   }) {
     this.session = session;
@@ -56,16 +57,16 @@ class PromptChain {
     timeout,
   }: {
     run_id: string;
-    inputs: Inputs;
-    history: LLMHistory[];
+    inputs: types.Inputs;
+    history: types.LLMHistory[];
     wanted_responses?: string[];
     timeout?: number;
-  }): Promise<AgentInnerRunResult> {
+  }): Promise<types.AgentInnerRunResult> {
     const prompts = this.prompts.sort((a, b) => a.index - b.index);
-    const responses: Record<string, LLMResponse> = {};
-    const updated_history: LLMHistory[] = [];
+    const responses: Record<string, types.LLMResponse> = {};
+    const updated_history: types.LLMHistory[] = [];
 
-    const updateHistory = (new_history: LLMHistory): undefined => {
+    const updateHistory = (new_history: types.LLMHistory): undefined => {
       if (!new_history.name) {
         new_history.name = this.agent.name;
       }
@@ -92,7 +93,7 @@ class PromptChain {
       const is_conversational =
         typeof inputs.message === "string" && prompt.conversational !== false;
 
-      const messages: LLMHistory[] = [
+      const messages: types.LLMHistory[] = [
         {
           role: is_conversational ? hosts[client.host].system_role : "user",
           content: validated_prompt,
@@ -121,7 +122,7 @@ class PromptChain {
         timeout,
       );
 
-      inputs[prompt.variable_name] = llmOutput.content as Input;
+      inputs[prompt.variable_name] = llmOutput.content as types.Input;
       responses[prompt.variable_name] = llmOutput;
       if (llmOutput.type === "text") {
         updateHistory({ role: "model", content: llmOutput.content });
@@ -136,7 +137,7 @@ class PromptChain {
       return { responses: responses, updated_history };
     }
 
-    let results: Record<string, LLMResponse> = {};
+    let results: Record<string, types.LLMResponse> = {};
     wanted_responses.map((wanted_response) => {
       const response = responses[wanted_response];
 
@@ -159,11 +160,11 @@ class PromptChain {
   async runPrompt(
     run_id: string,
     model: Model,
-    updateHistory: (history: LLMHistory) => undefined,
+    updateHistory: (history: types.LLMHistory) => undefined,
     validated_prompt: string,
-    messages: LLMHistory[],
+    messages: types.LLMHistory[],
     timeout?: number,
-  ): Promise<LLMResponse> {
+  ): Promise<types.LLMResponse> {
     const prompt_type = model.prompt.type;
 
     if (prompt_type === "image") {
@@ -201,11 +202,11 @@ class PromptChain {
   }
 
   async setupPrompt(
-    prompt: Prompt,
-    inputs: Inputs,
-    history: LLMHistory[],
+    prompt: types.Prompt,
+    inputs: types.Inputs,
+    history: types.LLMHistory[],
   ): Promise<{
-    client: LLMClient;
+    client: types.LLMClient;
     validated_prompt: string;
   }> {
     const wanted_clients = this.clients.filter(
@@ -222,7 +223,7 @@ class PromptChain {
     }
 
     const client = wanted_clients[0];
-    const built_prompt: BuiltPrompt = buildPrompt(prompt, inputs);
+    const built_prompt: types.BuiltPrompt = buildPrompt(prompt, inputs);
 
     const validated_prompt = await this.validatePrompt(
       prompt,
@@ -239,9 +240,9 @@ class PromptChain {
   }
 
   async validatePrompt(
-    prompt: Prompt,
-    built: BuiltPrompt,
-    inputText: Input | undefined,
+    prompt: types.Prompt,
+    built: types.BuiltPrompt,
+    inputText: types.Input | undefined,
     context: string,
   ): Promise<string> {
     const json_mode = typeof inputText === "string" ? true : false;
@@ -269,7 +270,7 @@ class PromptChain {
       );
     }
 
-    const messages: LLMHistory[] = [
+    const messages: types.LLMHistory[] = [
       {
         role: "user",
         name: this.session.user_name || "User",
@@ -318,11 +319,11 @@ class PromptChain {
   }
 
   async jsonMode(
-    client: LLMClient,
-    prompt: Prompt,
-    inputs: PromptInput[],
+    client: types.LLMClient,
+    prompt: types.Prompt,
+    inputs: types.PromptInput[],
     context: string,
-  ): Promise<Inputs> {
+  ): Promise<types.Inputs> {
     const model = new Model(client, prompt, this.tools);
     const response = await model.jsonRun(
       {
@@ -340,7 +341,7 @@ class PromptChain {
       promptToTool(prompt, inputs).tool.function.parameters,
     );
 
-    return response.content as Inputs;
+    return response.content as types.Inputs;
   }
 }
 

@@ -1,17 +1,19 @@
+import * as types from "@scoopika/types";
+
 import new_error from "../lib/error";
 import { GoogleGenerativeAI, Part } from "@google/generative-ai";
 import crypto from "node:crypto";
 
-const google: LLMHost = {
+const google: types.LLMHost<GoogleGenerativeAI> = {
   model_role: "model",
   system_role: "user",
 
   text: async (
     run_id: string,
     client: GoogleGenerativeAI,
-    stream: StreamFunc,
-    inputs: LLMFunctionBaseInputs,
-  ): Promise<LLMTextResponse> => {
+    stream: types.StreamFunc,
+    inputs: types.LLMFunctionBaseInputs,
+  ): Promise<types.LLMTextResponse> => {
     const model_inputs: {
       model: string;
       systemInstruction?: Record<string, any>;
@@ -62,7 +64,7 @@ const google: LLMHost = {
     const response = await chat.sendMessageStream(input);
 
     let response_message = "";
-    let tool_calls: LLMToolCall[] = [];
+    let tool_calls: types.LLMToolCall[] = [];
     let calls_messages: any[] = [];
 
     for await (const chunk of response.stream) {
@@ -104,10 +106,10 @@ const google: LLMHost = {
 
   json: async (
     client: GoogleGenerativeAI,
-    inputs: LLMFunctionBaseInputs,
-    schema: ToolParameters,
-  ): Promise<LLMJsonResponse> => {
-    const tool: Tool = {
+    inputs: types.LLMFunctionBaseInputs,
+    schema: types.ToolParameters,
+  ): Promise<types.LLMJsonResponse> => {
+    const tool: types.Tool = {
       type: "function",
       function: {
         name: "add_to_database",
@@ -157,7 +159,7 @@ const google: LLMHost = {
     };
   },
 
-  image: async (_client, _inputs: LLMFunctionImageInputs) => {
+  image: async (_client, _inputs: types.LLMFunctionImageInputs) => {
     throw new Error(
       new_error(
         "image_generation_not_available",
@@ -170,7 +172,7 @@ const google: LLMHost = {
   helpers: {
     modelsWithInstructions: () => ["gemini-1.5-pro-latest"],
 
-    setupHistory: (inputs: LLMFunctionBaseInputs) => {
+    setupHistory: (inputs: types.LLMFunctionBaseInputs) => {
       let slice = [];
 
       if (inputs.messages[inputs.messages.length - 1].role === "user") {

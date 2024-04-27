@@ -2,16 +2,21 @@ import new_error from "./lib/error";
 import { ToolRun } from "./tool";
 import hosts from "./models/hosts";
 import sleep from "./lib/sleep";
+import * as types from "@scoopika/types";
 
 class Model {
-  public client: LLMClient;
-  public prompt: Prompt;
-  private host: LLMHost;
-  private tools: ToolSchema[] = [];
-  private updated_history: LLMHistory[] = [];
+  public client: types.LLMClient;
+  public prompt: types.Prompt;
+  private host: types.LLMHost<any>;
+  private tools: types.ToolSchema[] = [];
+  private updated_history: types.LLMHistory[] = [];
   private follow_up_history: any[] = [];
 
-  constructor(client: LLMClient, prompt: Prompt, tools?: ToolSchema[]) {
+  constructor(
+    client: types.LLMClient,
+    prompt: types.Prompt,
+    tools?: types.ToolSchema[],
+  ) {
     this.client = client;
     this.prompt = prompt;
     const wanted_host = hosts[client.host];
@@ -33,11 +38,11 @@ class Model {
 
   async baseRun(
     run_id: string,
-    stream: StreamFunc,
-    updateHistory: (history: LLMHistory) => undefined,
-    inputs: LLMFunctionBaseInputs,
+    stream: types.StreamFunc,
+    updateHistory: (history: types.LLMHistory) => undefined,
+    inputs: types.LLMFunctionBaseInputs,
     timeout?: number,
-  ): Promise<LLMTextResponse> {
+  ): Promise<types.LLMTextResponse> {
     const messages = [
       ...inputs.messages,
       ...this.follow_up_history,
@@ -57,7 +62,7 @@ class Model {
       return output;
     }
 
-    const calls_results: ToolHistory[] = [];
+    const calls_results: types.ToolHistory[] = [];
 
     for (const tool_call of output.tool_calls) {
       const call_id = tool_call.id;
@@ -93,7 +98,7 @@ class Model {
     }
 
     calls_results.forEach((call) => {
-      const tool_call: LLMHistory = {
+      const tool_call: types.LLMHistory = {
         role: "tool",
         tool_call_id: call.tool_call_id,
         name: call.name,
@@ -118,15 +123,15 @@ class Model {
   }
 
   async jsonRun(
-    inputs: LLMFunctionBaseInputs,
-    schema: ToolParameters,
-  ): Promise<LLMJsonResponse> {
+    inputs: types.LLMFunctionBaseInputs,
+    schema: types.ToolParameters,
+  ): Promise<types.LLMJsonResponse> {
     const response = this.host.json(this.client.client, inputs, schema);
 
     return response;
   }
 
-  async imageRun(inputs: LLMFunctionImageInputs) {
+  async imageRun(inputs: types.LLMFunctionImageInputs) {
     return await this.host.image(this.client.client, inputs);
   }
 }

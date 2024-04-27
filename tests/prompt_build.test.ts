@@ -1,11 +1,12 @@
 import { expect, test } from "vitest";
 import buildPrompt from "../src/lib/build_prompt";
+import { Prompt } from "@scoopika/types";
 
 const prompt: Prompt = {
   id: "1",
   index: 0,
   variable_name: "cat_prompt",
-  content: "You are a cat called <<name>>, and color <<color>>",
+  content: "You are a cat called $name, and color $color",
   model: "gemini-1.5-pro-latest",
   llm_client: "google",
   type: "text",

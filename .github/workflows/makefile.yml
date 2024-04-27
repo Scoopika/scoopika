@@ -2,25 +2,24 @@ name: Makefile CI
 
 on:
   push:
-    branches: [ "main" ]
+    branches: ["main"]
   pull_request:
-    branches: [ "main" ]
+    branches: ["main"]
 
 jobs:
   build:
-
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v3
+      - uses: actions/checkout@v3
 
-    - name: Create env file
-      run: |
-        touch .env
-        echo GOOGLE_API_KEY=${{secrets.GOOGLE_API_KEY}} >> .env
+      - name: Create env file
+        run: |
+          touch .env
+          echo GOOGLE_API_KEY=${{secrets.GOOGLE_API_KEY}} >> .env
 
-    - name: Setup and install dependencies
-      run: make setup
+      - name: Setup and install dependencies
+        run: make setup
 
-    - name: Make
-      run: make
+      - name: Make
+        run: make

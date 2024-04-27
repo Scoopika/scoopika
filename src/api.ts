@@ -1,3 +1,5 @@
+import { AgentData, LLMClient } from "@scoopika/types";
+
 async function loadAgent(id: string): Promise<AgentData> {
   return {
     id: id,

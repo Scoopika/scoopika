@@ -1,3 +1,5 @@
+import { LLMFunctionBaseInputs, LLMCompletionInputs } from "@scoopika/types";
+
 function setupInputs(
   current_inputs: LLMFunctionBaseInputs,
 ): LLMCompletionInputs {

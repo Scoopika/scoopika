@@ -2,8 +2,9 @@ import OpenAI from "openai";
 import type { ChatCompletionCreateParamsStreaming } from "openai/resources";
 import setupInputs from "../lib/setup_model_inputs";
 import new_error from "../lib/error";
+import * as types from "@scoopika/types";
 
-const openai: LLMHost = {
+const openai: types.LLMHost<OpenAI> = {
   model_role: "assistant",
   system_role: "system",
 
@@ -12,10 +13,12 @@ const openai: LLMHost = {
   text: async (
     run_id: string,
     client: OpenAI,
-    stream: StreamFunc,
-    inputs: LLMFunctionBaseInputs,
-  ): Promise<LLMTextResponse> => {
+    stream: types.StreamFunc,
+    inputs: types.LLMFunctionBaseInputs,
+  ): Promise<types.LLMTextResponse> => {
     const completion_inputs = setupInputs(inputs);
+
+    console.log(inputs);
 
     const options_string = JSON.stringify(completion_inputs.options);
     delete completion_inputs.options;
@@ -27,7 +30,7 @@ const openai: LLMHost = {
     } as ChatCompletionCreateParamsStreaming);
 
     let response_message: string = "";
-    let tool_calls: LLMToolCall[] | undefined = [];
+    let tool_calls: types.LLMToolCall[] | undefined = [];
 
     for await (const chunk of response) {
       if (chunk.choices[0].delta.content) {
@@ -39,7 +42,7 @@ const openai: LLMHost = {
       }
 
       tool_calls = chunk.choices[0].delta.tool_calls as
-        | LLMToolCall[]
+        | types.LLMToolCall[]
         | undefined;
     }
 
@@ -62,15 +65,13 @@ const openai: LLMHost = {
 
   json: async (
     client: OpenAI,
-    inputs: LLMFunctionBaseInputs,
-    schema: ToolParameters,
-  ): Promise<LLMJsonResponse> => {
+    inputs: types.LLMFunctionBaseInputs,
+    schema: types.ToolParameters,
+  ): Promise<types.LLMJsonResponse> => {
     const response = await openai.text("json_mode", client, (_stream) => {}, {
       ...inputs,
       response_format: { type: "json_object", schema },
     });
-
-    console.log(response.content);
 
     if (!response.content || response.content.length < 1) {
       throw new Error(
@@ -98,8 +99,8 @@ const openai: LLMHost = {
 
   image: async (
     client: OpenAI,
-    inputs: LLMFunctionImageInputs,
-  ): Promise<LLMResponse> => {
+    inputs: types.LLMFunctionImageInputs,
+  ): Promise<types.LLMResponse> => {
     const response = await client.images.generate({
       model: inputs.model,
       prompt: inputs.prompt,

@@ -1,8 +1,12 @@
+import { ToolSchema, FunctionToolSchema, ApiToolSchema } from "@scoopika/types";
+import validate from "./lib/validate";
+
 class ToolRun {
   tool: ToolSchema;
   args: Record<string, any>;
 
   constructor(tool: ToolSchema, args: Record<string, any>) {
+    validate(tool.tool.function.parameters, args);
     this.tool = tool;
     this.args = args;
   }
@@ -44,7 +48,10 @@ class ToolRun {
       inputs.data = this.args;
     }
 
-    const response = await fetch(tool.url, inputs);
+    const response = await fetch(tool.url, {
+      ...inputs,
+      method: tool.method.toUpperCase(),
+    });
 
     try {
       const data = await response.json();

@@ -3,40 +3,42 @@ import api from "./api";
 import PromptChain from "./prompt_chain";
 import InMemoryStore from "./store";
 import StateStore from "./state";
+import buildClients from "./lib/build_clients";
 import crypto from "node:crypto";
+import * as types from "@scoopika/types";
 
 class Agent {
-  public clients: LLMClient[] = [];
-  public agent: AgentData | null = null;
+  public clients: types.LLMClient[] = [];
+  public agent: types.AgentData | null = null;
   private id: string;
   private url: string = config.api_url;
   private store: InMemoryStore;
   private stateStore: StateStore;
-  private loadedSessions: StoreSession[] = [];
+  private loadedSessions: types.StoreSession[] = [];
   private standalone: boolean;
   private saved_prompts: Record<string, Record<string, string>> = {};
 
-  streamFunc: StreamFunc | undefined;
-  stream_listeners: ((message: StreamMessage) => any)[] = [];
+  streamFunc: types.StreamFunc | undefined;
+  stream_listeners: ((message: types.StreamMessage) => any)[] = [];
   status_listeners: ((status: string) => undefined)[] = [];
-  tool_calls_listeners: ((data: ToolCalledMessage) => undefined)[] = [];
+  tool_calls_listeners: ((data: types.ToolCalledMessage) => undefined)[] = [];
 
   constructor({
     id,
     agent,
-    llmClients,
+    engines,
     stateStore,
     store,
     standalone,
     streamFunc,
   }: {
     id: string;
-    agent?: AgentData;
-    llmClients?: LLMClient[];
+    agent?: types.AgentData;
+    engines?: types.RawEngines;
     stateStore?: StateStore;
     store?: InMemoryStore;
     standalone?: boolean;
-    streamFunc?: StreamFunc;
+    streamFunc?: types.StreamFunc;
   }) {
     if (!stateStore) {
       stateStore = new StateStore();
@@ -58,8 +60,8 @@ class Agent {
       this.agent = agent;
     }
 
-    if (llmClients) {
-      this.clients = llmClients;
+    if (engines) {
+      this.clients = buildClients(engines);
     }
 
     this.streamFunc = streamFunc;
@@ -80,9 +82,9 @@ class Agent {
     this.stateStore.setState(session_id, 0);
   }
 
-  private async getSession(id: string): Promise<StoreSession> {
+  private async getSession(id: string): Promise<types.StoreSession> {
     const loaded = this.loadedSessions.filter((s) => s.id === id);
-    let session: StoreSession;
+    let session: types.StoreSession;
 
     if (loaded.length > 0) {
       session = loaded[0];
@@ -108,8 +110,8 @@ class Agent {
     inputs,
   }: {
     session_id: string;
-    inputs: Inputs;
-  }): Promise<AgentResponse> {
+    inputs: types.Inputs;
+  }): Promise<types.AgentResponse> {
     if (!this.agent) {
       await this.loadAgent();
     }
@@ -118,7 +120,7 @@ class Agent {
       await this.loadClients();
     }
 
-    const agent = this.agent as AgentData;
+    const agent = this.agent as types.AgentData;
     const session = await this.getSession(session_id);
     const run_id = "run_" + crypto.randomUUID();
 
@@ -142,8 +144,8 @@ class Agent {
     session,
     agent,
     inputs,
-  }: AgentRunInputs): Promise<{
-    run: AgentInnerRunResult,
+  }: types.AgentRunInputs): Promise<{
+    run: types.AgentInnerRunResult,
     saved_prompts: Record<string, string>
   }> {
     const prompt_chain = new PromptChain({
@@ -192,36 +194,32 @@ class Agent {
   }
 
   async updateSavedPrompts(
-    session: StoreSession,
+    session: types.StoreSession,
     new_prompts: Record<string, string>,
   ) {
     this.saved_prompts[session.id] = new_prompts;
     await this.store.updateSession(session.id, { saved_prompts: new_prompts });
   }
 
-  setupHistory(session: StoreSession, inputs: Inputs, history: LLMHistory[]) {
-    let content: string;
-    if (typeof inputs.message === "string") {
-      content = inputs.message;
-    } else {
-      content = JSON.stringify(inputs);
-    }
-
-    history.push({
-      role: "user",
-      name: session.user_name || "User",
-      content,
-    });
-
+  setupHistory(session: types.StoreSession, inputs: types.Inputs, history: types.LLMHistory[]) {
     return history;
+  //   if (typeof inputs.message === "string") {
+  //     history.push({
+  //       role: "user",
+  //       name: session.user_name || "User",
+  //       content: inputs.message
+  //     })
+  //   }
+  //
+  //   return history;
   }
 
-  getStreamFunc(): StreamFunc {
+  getStreamFunc(): types.StreamFunc {
     if (this.streamFunc) {
       return this.streamFunc;
     }
     const listeners = this.stream_listeners;
-    return (message: StreamMessage) => {
+    return (message: types.StreamMessage) => {
       listeners.map((listener) => {
         listener(message);
       });
@@ -234,11 +232,11 @@ class Agent {
     });
   }
 
-  private toolCalled(data: ToolCalledMessage): undefined {
+  private toolCalled(data: types.ToolCalledMessage): undefined {
     this.tool_calls_listeners.map((listener) => listener(data));
   }
 
-  public on({ type, func }: OnListener): undefined {
+  public on({ type, func }: types.OnListener): undefined {
     if (type === "stream") {
       this.stream_listeners.push(func);
       return;

@@ -1,7 +1,5 @@
 import { test, expect } from "vitest";
 import setupInputs from "../src/lib/setup_model_inputs";
-import { type } from "os";
-import exp from "constants";
 
 test("LLM inputs with no tools", () => {
   const inputs = setupInputs({

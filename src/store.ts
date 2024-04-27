@@ -1,4 +1,5 @@
 import new_error from "./lib/error";
+import { LLMHistory, StoreSession } from "@scoopika/types";
 
 class InMemoryStore {
   history: Record<string, LLMHistory[]> = {};

@@ -1,3 +1,5 @@
+import { LLMHistory } from "@scoopika/types";
+
 function mixHistory(history: LLMHistory[]): string {
   const stringHistory = history.map((item) => {
     if (item.role === "user") {
@@ -14,7 +16,7 @@ function mixHistory(history: LLMHistory[]): string {
 
     return `${item.name}: ${item.content}`;
   });
-  return stringHistory.join(".\n");
+  return "Context history:\n" + stringHistory.join(".\n");
 }
 
 export default mixHistory;

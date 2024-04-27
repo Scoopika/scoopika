@@ -1,6 +1,8 @@
+test:
+	npm run test
+
 build:
 	npm run build
 
-setup:
+install:
 	npm install
-	git clone https://github.com/scoopika/scoopika-types
