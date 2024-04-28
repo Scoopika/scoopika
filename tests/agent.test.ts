@@ -1,13 +1,36 @@
 import { test, expect } from "vitest";
-import { GoogleGenerativeAI } from "@google/generative-ai";
 import Agent from "../src/agent";
 import { AgentData } from "@scoopika/types";
+import Client from "../src/client";
 
 const dummy_agent: AgentData = {
   id: "agent",
   name: "Agento",
   description: "Agent that help make a plan for learning new things",
-  tools: [],
+  tools: [
+    {
+      type: "function",
+      executor: (_inputs: any) => "[Eminem - lose yourself]",
+      tool: {
+        type: "function",
+        function: {
+          name: "get_search_history",
+          description: "Get the music search history from latest to oldest",
+          parameters: {
+            type: "object",
+            properties: {
+              n: {
+                type: "number",
+                description: "The number of wanted results, default to 1",
+                default: 1,
+              },
+            },
+            required: ["n"],
+          },
+        },
+      },
+    },
+  ],
   prompts: [
     {
       id: "prompt-1",
@@ -18,74 +41,53 @@ const dummy_agent: AgentData = {
       options: {},
       type: "text",
       content:
-        "Output 3 main ideas about a plan for learning $topic, just 3 words and nothing else",
+        "you respond 3 main tips about how to learn the topic $topic. juts 3 main tips a nothing else",
       inputs: [
         {
           id: "topic",
           description: "The learning topic",
-          type: "string",
-          required: true,
-        },
-      ],
-    },
-    {
-      id: "prompt-2",
-      index: 1,
-      model: "accounts/fireworks/models/firefunction-v1",
-      llm_client: "fireworks",
-      variable_name: "descriptions",
-      options: {},
-      type: "text",
-      content:
-        "Output a description for each one of these 3 main ideas $main3 about a plan for learning $topic. make the description only 3 to 4 words",
-      inputs: [
-        {
-          id: "topic",
-          description: "The learning topic",
-          type: "string",
-          required: true,
-        },
-        {
-          id: "main3",
-          description: "The 3 main ideas",
           type: "string",
           required: true,
         },
       ],
     },
   ],
-  chained: true,
+  chained: false,
 };
 
-test("Chained agent", async () => {
-  const agent = new Agent({
-    id: "agent",
-    agent: dummy_agent,
+test("Running agent with tools and history", async () => {
+  const client = new Client({
+    token: "hello",
+    store: "memory",
     engines: {
       fireworks: process.env["FIREWORKS_API"],
     },
-  });
+  })
 
-  await agent.newSession("session1", "Kais");
-  await agent.run({
-    session_id: "session1",
-    inputs: {
-      topic: "playing guitar",
-      // message: "My topic is about playing guitar",
-    },
-  });
+  const agent = await new Agent("agent", client, {
+    agent: dummy_agent,
+  }).load();
 
   const run = await agent.run({
     session_id: "session1",
-    inputs: {
-      message: "Can you now translate the first one to french",
-    },
+    topic: "playing guitar",
+    message: "I want to learn how to play the latest song I searched for",
   });
 
-  console.log(run);
+  const run2 = await agent.run({
+    session_id: "session1",
+    message: "What was the latest song I searched for again?",
+  });
 
-  expect(typeof run.responses.main3.content).toBe("string");
-  expect(typeof run.responses.descriptions.content).toBe("string");
-  expect(run.responses.main3.type).toBe("text");
+  expect(typeof run.responses.main.content).toBe("string");
+  expect(run.responses.main.type).toBe("text");
+
   expect(run.session_id).toBe("session1");
+  expect(run2.responses.main.type).toBe("text");
+  expect(run2.session_id).toBe("session1");
+  expect(
+    String(run2.responses.main.content)
+      .toLowerCase()
+      .includes("lose yourself"),
+  ).toBe(true);
 });

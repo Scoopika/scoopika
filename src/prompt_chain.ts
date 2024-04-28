@@ -3,7 +3,6 @@ import Model from "./model";
 import mixHistory from "./lib/mix_history";
 import new_error from "./lib/error";
 import promptToTool from "./lib/prompt_to_tool";
-import hosts from "./models/hosts";
 import { sleep } from "openai/core";
 import * as types from "@scoopika/types";
 
@@ -52,65 +51,41 @@ class PromptChain {
   async run({
     run_id,
     inputs,
-    history,
+    messages,
     wanted_responses,
     timeout,
   }: {
     run_id: string;
     inputs: types.Inputs;
-    history: types.LLMHistory[];
+    messages: types.LLMHistory[];
     wanted_responses?: string[];
     timeout?: number;
   }): Promise<types.AgentInnerRunResult> {
     const prompts = this.prompts.sort((a, b) => a.index - b.index);
     const responses: Record<string, types.LLMResponse> = {};
     const updated_history: types.LLMHistory[] = [];
+    let running_prompt: string = "";
 
     const updateHistory = (new_history: types.LLMHistory): undefined => {
-      if (!new_history.name) {
-        new_history.name = this.agent.name;
-      }
-      updated_history.push(new_history);
-      if (history.length < 1) {
-        history.push(new_history);
+      if (this.agent.chained) {
+        updated_history.push({
+          ...new_history,
+          name: running_prompt,
+          role: "prompt",
+        });
         return;
       }
-      const mixed_history =
-        history[history.length - 1].content + "\n" + mixHistory([new_history]);
-      history[history.length - 1] = {
-        ...history[history.length - 1],
-        content: mixed_history,
-      };
+
+      updated_history.push({ ...new_history, name: this.agent.name });
     };
 
     for await (const prompt of prompts) {
+      running_prompt = prompt.variable_name;
       const { client, validated_prompt } = await this.setupPrompt(
         prompt,
         inputs,
-        history,
+        messages,
       );
-
-      const is_conversational =
-        typeof inputs.message === "string" && prompt.conversational !== false;
-
-      const messages: types.LLMHistory[] = [
-        {
-          role: is_conversational ? hosts[client.host].system_role : "user",
-          content: validated_prompt,
-        },
-      ];
-
-      if (history.length > 0) {
-        messages.push({ role: "user", content: mixHistory(history) });
-      }
-
-      if (is_conversational) {
-        messages.push({
-          role: "user",
-          name: this.session.user_name || "User",
-          content: String(inputs.message),
-        });
-      }
 
       const model = new Model(client, prompt, this.tools);
       const llmOutput = await this.runPrompt(
@@ -133,8 +108,15 @@ class PromptChain {
       }
     }
 
+    const mixed_history: types.LLMHistory[] = [
+      {
+        role: "user",
+        content: "Context history:\n" + mixHistory(updated_history),
+      },
+    ];
+
     if (!wanted_responses || wanted_responses.length < 1) {
-      return { responses: responses, updated_history };
+      return { responses: responses, updated_history: mixed_history };
     }
 
     let results: Record<string, types.LLMResponse> = {};
@@ -154,7 +136,7 @@ class PromptChain {
       results[wanted_response] = response;
     });
 
-    return { responses: results, updated_history };
+    return { responses: results, updated_history: mixed_history };
   }
 
   async runPrompt(
@@ -181,7 +163,7 @@ class PromptChain {
         model.client,
         model.prompt,
         model.prompt.inputs,
-        mixHistory(messages),
+        messages,
       );
       return { type: "object", content: json };
     }
@@ -193,7 +175,7 @@ class PromptChain {
       {
         model: model.prompt.model,
         options: model.prompt.options,
-        messages,
+        messages: [{ role: "system", content: validated_prompt }, ...messages],
         tools: this.tools.map((tool) => tool.tool),
         tool_choice: model.prompt.tool_choice,
       },
@@ -204,7 +186,7 @@ class PromptChain {
   async setupPrompt(
     prompt: types.Prompt,
     inputs: types.Inputs,
-    history: types.LLMHistory[],
+    messages: types.LLMHistory[],
   ): Promise<{
     client: types.LLMClient;
     validated_prompt: string;
@@ -229,7 +211,7 @@ class PromptChain {
       prompt,
       built_prompt,
       inputs.message,
-      mixHistory(history),
+      messages,
     );
 
     if (prompt.conversational !== false) {
@@ -243,7 +225,7 @@ class PromptChain {
     prompt: types.Prompt,
     built: types.BuiltPrompt,
     inputText: types.Input | undefined,
-    context: string,
+    messages: types.LLMHistory[],
   ): Promise<string> {
     const json_mode = typeof inputText === "string" ? true : false;
     const missing = built.missing;
@@ -270,14 +252,6 @@ class PromptChain {
       );
     }
 
-    const messages: types.LLMHistory[] = [
-      {
-        role: "user",
-        name: this.session.user_name || "User",
-        content: String(inputText),
-      },
-    ];
-
     const wanted_clients = this.clients.filter(
       (client) => client.host === prompt.llm_client,
     );
@@ -297,7 +271,7 @@ class PromptChain {
       wanted_clients[0],
       prompt,
       [...missing],
-      `Context:\n${context}\n` + mixHistory(messages),
+      messages,
     );
 
     const new_built_prompt = buildPrompt(
@@ -322,7 +296,7 @@ class PromptChain {
     client: types.LLMClient,
     prompt: types.Prompt,
     inputs: types.PromptInput[],
-    context: string,
+    messages: types.LLMHistory[],
   ): Promise<types.Inputs> {
     const model = new Model(client, prompt, this.tools);
     const response = await model.jsonRun(
@@ -335,7 +309,7 @@ class PromptChain {
             role: "system",
             content: "Your role is to extract JSON data from the context.",
           },
-          { role: "user", content: context },
+          ...messages,
         ],
       },
       promptToTool(prompt, inputs).tool.function.parameters,

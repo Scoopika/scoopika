@@ -14,9 +14,13 @@ function mixHistory(history: LLMHistory[]): string {
       return `Executed tool (${item.name}) with results: ${item.content}`;
     }
 
+    if (item.role === "prompt") {
+      return `${item.name || "result"}: ${item.content}`;
+    }
+
     return `${item.name}: ${item.content}`;
   });
-  return "Context history:\n" + stringHistory.join(".\n");
+  return stringHistory.join(".\n");
 }
 
 export default mixHistory;

@@ -3,6 +3,7 @@ import type { ChatCompletionCreateParamsStreaming } from "openai/resources";
 import setupInputs from "../lib/setup_model_inputs";
 import new_error from "../lib/error";
 import * as types from "@scoopika/types";
+import crypto from "node:crypto";
 
 const openai: types.LLMHost<OpenAI> = {
   model_role: "assistant",
@@ -18,8 +19,6 @@ const openai: types.LLMHost<OpenAI> = {
   ): Promise<types.LLMTextResponse> => {
     const completion_inputs = setupInputs(inputs);
 
-    console.log(inputs);
-
     const options_string = JSON.stringify(completion_inputs.options);
     delete completion_inputs.options;
 
@@ -30,7 +29,7 @@ const openai: types.LLMHost<OpenAI> = {
     } as ChatCompletionCreateParamsStreaming);
 
     let response_message: string = "";
-    let tool_calls: types.LLMToolCall[] | undefined = [];
+    let tool_calls: types.LLMToolCall[] = [];
 
     for await (const chunk of response) {
       if (chunk.choices[0].delta.content) {
@@ -41,9 +40,48 @@ const openai: types.LLMHost<OpenAI> = {
         });
       }
 
-      tool_calls = chunk.choices[0].delta.tool_calls as
-        | types.LLMToolCall[]
-        | undefined;
+      const calls = chunk.choices[0].delta.tool_calls;
+
+      if (!calls || calls.length < 1) {
+        continue;
+      }
+
+      calls.map((call) => {
+        const saved_call = tool_calls[call.index];
+        if (!saved_call) {
+          tool_calls[call.index] = {
+            id: call.id || crypto.randomUUID(),
+            type: "function",
+            function: {
+              name: call.function?.name || "",
+              arguments: call.function?.arguments || "",
+            },
+          };
+          return;
+        }
+
+        if (call.id && saved_call.id !== saved_call.id) {
+          tool_calls[call.index].id = call.id;
+        }
+
+        if (!call.function) {
+          return;
+        }
+
+        if (
+          call.function.name &&
+          call.function.name !== saved_call.function.name
+        ) {
+          tool_calls[call.index].function.name = call.function.name;
+        }
+
+        if (
+          call.function.arguments &&
+          call.function.arguments !== saved_call.function.arguments
+        ) {
+          tool_calls[call.index].function.arguments += call.function.arguments;
+        }
+      });
     }
 
     if (!tool_calls) {
