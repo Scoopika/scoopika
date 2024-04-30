@@ -15,6 +15,7 @@ class PromptChain {
   private stream: types.StreamFunc;
   private statusUpdate: types.StatusUpdateFunc;
   private agent: types.AgentData;
+  public running_prompt: types.Prompt | undefined = undefined;
 
   constructor({
     session,
@@ -54,12 +55,14 @@ class PromptChain {
     messages,
     wanted_responses,
     timeout,
+    onPromptResponse,
   }: {
     run_id: string;
     inputs: types.Inputs;
     messages: types.LLMHistory[];
     wanted_responses?: string[];
     timeout?: number;
+    onPromptResponse?: (response: types.LLMResponse) => any;
   }): Promise<types.AgentInnerRunResult> {
     const prompts = this.prompts.sort((a, b) => a.index - b.index);
     const responses: Record<string, types.LLMResponse> = {};
@@ -103,6 +106,10 @@ class PromptChain {
         updateHistory({ role: "model", content: llmOutput.content });
       }
 
+      if (onPromptResponse) {
+        onPromptResponse(llmOutput);
+      }
+
       if (timeout) {
         await sleep(timeout);
       }
@@ -111,7 +118,8 @@ class PromptChain {
     const mixed_history: types.LLMHistory[] = [
       {
         role: "user",
-        content: "Context history:\n" + mixHistory(updated_history),
+        content:
+          "Previous conversation context:\n" + mixHistory(updated_history),
       },
     ];
 
@@ -179,6 +187,7 @@ class PromptChain {
         tools: this.tools.map((tool) => tool.tool),
         tool_choice: model.prompt.tool_choice,
       },
+      this.agent.chained,
       timeout,
     );
   }
@@ -207,7 +216,7 @@ class PromptChain {
     const client = wanted_clients[0];
     const built_prompt: types.BuiltPrompt = buildPrompt(prompt, inputs);
 
-    const validated_prompt = await this.validatePrompt(
+    let validated_prompt = await this.validatePrompt(
       prompt,
       built_prompt,
       inputs.message,
@@ -216,6 +225,10 @@ class PromptChain {
 
     if (prompt.conversational !== false) {
       this.saved_prompts[prompt.variable_name] = validated_prompt;
+    }
+
+    if (!this.agent.chained) {
+      validated_prompt = `You are ${this.agent.name}, ` + validated_prompt;
     }
 
     return { client, validated_prompt };

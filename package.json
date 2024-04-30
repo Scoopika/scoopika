@@ -1,6 +1,6 @@
 {
   "name": "@scoopika/scoopika",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Create magical AI agents and boxes with multiple agents in seconds",
   "main": "dist/src/main.js",
   "types": "dist/index.d.ts",
@@ -18,7 +18,7 @@
     "AI Boxes"
   ],
   "devDependencies": {
-    "@scoopika/types": "^1.1.5",
+    "@scoopika/types": "^1.2.2",
     "@types/node": "^20.12.7",
     "@vitest/coverage-v8": "^1.5.0",
     "dotenv": "^16.4.5",

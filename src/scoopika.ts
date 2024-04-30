@@ -3,7 +3,7 @@ import InMemoryStore from "./store";
 import * as types from "@scoopika/types";
 import crypto from "node:crypto";
 
-class Client {
+class Scoopika {
   private url: string = "https://scoopika-source.deno.dev"; // Main API Url to get source data
   private token: string;
   public store: InMemoryStore;
@@ -15,7 +15,7 @@ class Client {
   constructor({
     token,
     store,
-    engines
+    engines,
   }: {
     token: string;
     store?: "memory" | string | InMemoryStore;
@@ -34,7 +34,10 @@ class Client {
     this.store = new InMemoryStore();
   }
 
-  public async getSession(id: string, allow_new?: boolean): Promise<types.StoreSession> {
+  public async getSession(
+    id: string,
+    allow_new?: boolean,
+  ): Promise<types.StoreSession> {
     const loaded = this.loadedSessions[id];
 
     if (loaded) {
@@ -80,8 +83,8 @@ class Client {
     const res = await fetch(this.url + `/agent/${id}`, {
       method: "GET",
       headers: {
-        authorization: this.token
-      }
+        authorization: this.token,
+      },
     });
 
     const status = res.status;
@@ -97,6 +100,28 @@ class Client {
 
     return data.agent as types.AgentData;
   }
+
+  public async loadBox(id: string): Promise<types.BoxData> {
+    const res = await fetch(this.url + `/box/${id}`, {
+      method: "GET",
+      headers: {
+        authorization: this.token,
+      },
+    });
+
+    const status = res.status;
+    const data = await res.json();
+
+    if (status !== 200) {
+      throw new Error(data.error || `Server error, status: ${status}`);
+    }
+
+    if (!data.box || typeof data.box !== "object") {
+      throw new Error("Invalid server response");
+    }
+
+    return data.box as types.BoxData;
+  }
 }
 
-export default Client;
+export default Scoopika;

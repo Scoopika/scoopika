@@ -12,13 +12,13 @@ const openai: types.LLMHost<OpenAI> = {
   helpers: {},
 
   text: async (
+    prompt_name: string,
     run_id: string,
     client: OpenAI,
     stream: types.StreamFunc,
     inputs: types.LLMFunctionBaseInputs,
   ): Promise<types.LLMTextResponse> => {
     const completion_inputs = setupInputs(inputs);
-
     const options_string = JSON.stringify(completion_inputs.options);
     delete completion_inputs.options;
 
@@ -35,6 +35,7 @@ const openai: types.LLMHost<OpenAI> = {
       if (chunk.choices[0].delta.content) {
         response_message += chunk.choices[0].delta.content;
         stream({
+          prompt_name,
           run_id,
           content: chunk.choices[0].delta.content,
         });
@@ -95,7 +96,10 @@ const openai: types.LLMHost<OpenAI> = {
     );
 
     if (response_message.length === 0 && tool_calls.length === 0) {
-      return openai.text(run_id, client, stream, { ...inputs, tools: [] });
+      return openai.text(prompt_name, run_id, client, stream, {
+        ...inputs,
+        tools: [],
+      });
     }
 
     return { type: "text", content: response_message, tool_calls };
@@ -106,10 +110,16 @@ const openai: types.LLMHost<OpenAI> = {
     inputs: types.LLMFunctionBaseInputs,
     schema: types.ToolParameters,
   ): Promise<types.LLMJsonResponse> => {
-    const response = await openai.text("json_mode", client, (_stream) => {}, {
-      ...inputs,
-      response_format: { type: "json_object", schema },
-    });
+    const response = await openai.text(
+      "",
+      "json_mode",
+      client,
+      (_stream) => {},
+      {
+        ...inputs,
+        response_format: { type: "json_object", schema },
+      },
+    );
 
     if (!response.content || response.content.length < 1) {
       throw new Error(

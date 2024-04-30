@@ -1,4 +1,6 @@
 import Agent from "./agent";
 import InMemoryStore from "./store";
+import Scoopika from "./scoopika";
+import Box from "./box";
 
-export { Agent, InMemoryStore };
+export { Scoopika, Agent, Box, InMemoryStore };

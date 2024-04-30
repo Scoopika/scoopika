@@ -14,11 +14,11 @@ class Model {
 
   constructor(
     client: types.LLMClient,
-    prompt: types.Prompt,
+    prompt?: types.Prompt,
     tools?: types.ToolSchema[],
   ) {
     this.client = client;
-    this.prompt = prompt;
+    this.prompt = prompt || ({} as types.Prompt);
     const wanted_host = hosts[client.host];
     if (!wanted_host) {
       throw new Error(
@@ -41,7 +41,9 @@ class Model {
     stream: types.StreamFunc,
     updateHistory: (history: types.LLMHistory) => undefined,
     inputs: types.LLMFunctionBaseInputs,
+    chained: boolean,
     timeout?: number,
+    execute_tools?: boolean,
   ): Promise<types.LLMTextResponse> {
     const messages = [
       ...inputs.messages,
@@ -49,16 +51,26 @@ class Model {
       ...this.updated_history,
     ];
 
-    const output = await this.host.text(run_id, this.client.client, stream, {
-      ...inputs,
-      messages,
-    });
+    const output = await this.host.text(
+      chained ? this.prompt.variable_name : "main",
+      run_id,
+      this.client.client,
+      stream,
+      {
+        ...inputs,
+        messages,
+      },
+    );
 
     if (output.type !== "text") {
       return output;
     }
 
-    if (!output.tool_calls || output.tool_calls?.length < 1) {
+    if (
+      !output.tool_calls ||
+      output.tool_calls?.length < 1 ||
+      execute_tools === false
+    ) {
       return output;
     }
 
@@ -116,7 +128,15 @@ class Model {
       if (timeout) {
         await sleep(timeout);
       }
-      return await this.baseRun(run_id, stream, updateHistory, inputs);
+      return await this.baseRun(
+        run_id,
+        stream,
+        updateHistory,
+        inputs,
+        chained,
+        timeout,
+        execute_tools,
+      );
     }
 
     return output;

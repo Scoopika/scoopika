@@ -9,6 +9,7 @@ const google: types.LLMHost<GoogleGenerativeAI> = {
   system_role: "user",
 
   text: async (
+    prompt_name: string,
     run_id: string,
     client: GoogleGenerativeAI,
     stream: types.StreamFunc,
@@ -71,7 +72,7 @@ const google: types.LLMHost<GoogleGenerativeAI> = {
       const text = chunk.text();
       if (text) {
         response_message += text;
-        stream({ content: text, run_id });
+        stream({ prompt_name, content: text, run_id });
       }
 
       const calls = chunk.functionCalls();

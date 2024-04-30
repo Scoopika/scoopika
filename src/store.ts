@@ -1,23 +1,5 @@
 import new_error from "./lib/error";
-import { LLMHistory, StoreSession } from "@scoopika/types";
-
-interface Store {
-  newSession: (id: string, user_name?: string) => void;
-  getSession: (id: string) => Promise<StoreSession | undefined>;
-  updateSession: (
-    id: string,
-    new_data: {
-      user_name?: string;
-      saved_prompts?: Record<string, string>;
-    },
-  ) => void;
-  getHistory: (session: StoreSession) => Promise<LLMHistory[]>;
-  pushHistory: (session: StoreSession, history: LLMHistory) => Promise<void>;
-  batchPushHistory: (
-    session: StoreSession,
-    history: LLMHistory[],
-  ) => Promise<void>;
-}
+import { LLMHistory, Store, StoreSession } from "@scoopika/types";
 
 class InMemoryStore implements Store {
   public history: Record<string, LLMHistory[]> = {};

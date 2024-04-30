@@ -1,61 +1,48 @@
-import api from "./api";
 import PromptChain from "./prompt_chain";
-import InMemoryStore from "./store";
 import StateStore from "./state";
 import buildClients from "./lib/build_clients";
+import resolveRAG from "./lib/resolve_rag";
 import crypto from "node:crypto";
 import * as types from "@scoopika/types";
-import Client from "./client";
+import Scoopika from "./scoopika";
 
 class Agent {
   public llm_clients: types.LLMClient[] = [];
   public agent: types.AgentData | null = null;
   private id: string;
-  private client: Client;
-  private store: InMemoryStore;
+  private client: Scoopika;
   private stateStore: StateStore;
-  private loadedSessions: types.StoreSession[] = [];
-  private standalone: boolean = true;
   private saved_prompts: Record<string, Record<string, string>> = {};
+  public tools: types.ToolSchema[] = [];
 
   streamFunc: types.StreamFunc | undefined;
-  stream_listeners: ((message: types.StreamMessage) => any)[] = [];
-  status_listeners: ((status: string) => undefined)[] = [];
-  tool_calls_listeners: ((data: types.ToolCalledMessage) => undefined)[] = [];
+  stream_listeners: types.StreamFunc[] = [];
+  status_listeners: types.StatusUpdateFunc[] = [];
+  tool_calls_listeners: types.ToolCalledFunc[] = [];
+  prompt_listeners: ((response: types.LLMResponse) => any)[] = [];
+  finish_listeners: ((response: types.AgentResponse) => any)[] = [];
 
-  constructor(id: string, client: Client, {
-    agent,
-    engines,
-    stateStore,
-    store,
-    standalone,
-    streamFunc,
-  }: {
-    agent?: types.AgentData;
-    engines?: types.RawEngines;
-    stateStore?: StateStore;
-    store?: InMemoryStore;
-    standalone?: boolean;
-    streamFunc?: types.StreamFunc;
-  }) {
+  constructor(
+    id: string,
+    client: Scoopika,
+    {
+      agent,
+      engines,
+      stateStore,
+      streamFunc,
+    }: {
+      agent?: types.AgentData;
+      engines?: types.RawEngines;
+      stateStore?: StateStore;
+      streamFunc?: types.StreamFunc;
+    },
+  ) {
     this.client = client;
 
     if (!stateStore) {
       stateStore = new StateStore();
     }
 
-    if (!store) {
-      store = new InMemoryStore();
-    } else {
-      this.store = client.store;
-    }
-
-    if (typeof standalone !== "boolean") {
-      standalone = true;
-    }
-
-    this.standalone = standalone;
-    this.store = store;
     this.stateStore = stateStore;
     this.id = id;
     if (agent) {
@@ -78,7 +65,7 @@ class Agent {
 
   public async load(): Promise<Agent> {
     if (this.agent) {
-      return this
+      return this;
     }
 
     await this.loadAgent();
@@ -102,7 +89,10 @@ class Agent {
 
     const agent = this.agent as types.AgentData;
     const session = await this.client.getSession(session_id);
-    const run_id = "run_" + crypto.randomUUID();
+    const run_id =
+      typeof inputs.run_id === "string"
+        ? inputs.run_id
+        : "run_" + crypto.randomUUID();
 
     const { run, saved_prompts } = await this.chainRun({
       run_id,
@@ -116,21 +106,27 @@ class Agent {
 
     await this.stateStore.setState(session.id, 0);
 
+    let res: types.AgentResponse;
+
     if (!this.agent?.chained) {
-      return {
+      res = {
         run_id,
         session_id,
         responses: {
-          main: run.responses[Object.keys(run.responses)[0]]
-        }
-      }
+          main: run.responses[Object.keys(run.responses)[0]],
+        },
+      };
+    } else {
+      res = {
+        run_id,
+        session_id: session.id,
+        responses: run.responses,
+      };
     }
 
-    return {
-      run_id,
-      session_id: session.id,
-      responses: run.responses,
-    };
+    this.finish_listeners.forEach((listener) => listener(res));
+
+    return res;
   }
 
   async chainRun({
@@ -148,23 +144,26 @@ class Agent {
       clients: this.llm_clients,
       stream: this.getStreamFunc(),
       statusUpdate: this.updateStatus,
-      tools: agent.tools,
+      tools: [...agent.tools, ...this.tools],
       prompts: agent.prompts,
       saved_prompts: this.saved_prompts[session.id] || {},
     });
 
+    const newInputs: types.Inputs = await resolveRAG(inputs);
+
     const history = this.setupHistory(
       session,
-      inputs,
+      newInputs,
       await this.client.store.getHistory(session),
     );
 
     const run = await prompt_chain.run({
       run_id,
-      inputs,
+      inputs: newInputs,
       messages: history,
       wanted_responses: agent.wanted_responses,
       timeout: agent.timeout,
+      onPromptResponse: this.getPromptStreamFunc(),
     });
 
     const updated_history: types.LLMHistory[] = !inputs.message
@@ -189,7 +188,9 @@ class Agent {
     new_prompts: Record<string, string>,
   ) {
     this.saved_prompts[session.id] = new_prompts;
-    await this.client.store.updateSession(session.id, { saved_prompts: new_prompts });
+    await this.client.store.updateSession(session.id, {
+      saved_prompts: new_prompts,
+    });
   }
 
   setupHistory(
@@ -197,18 +198,17 @@ class Agent {
     inputs: types.Inputs,
     history: types.LLMHistory[],
   ): types.LLMHistory[] {
+    const newHistory: types.LLMHistory[] = JSON.parse(JSON.stringify(history));
+
     if (typeof inputs.message === "string") {
-      return [
-        ...history,
-        {
-          role: "user",
-          name: session.user_name || "User",
-          content: inputs.message,
-        },
-      ];
+      newHistory.push({
+        role: "user",
+        name: session.user_name || "User",
+        content: inputs.message,
+      });
     }
 
-    return history;
+    return newHistory;
   }
 
   getStreamFunc(): types.StreamFunc {
@@ -219,6 +219,15 @@ class Agent {
     return (message: types.StreamMessage) => {
       listeners.map((listener) => {
         listener(message);
+      });
+    };
+  }
+
+  getPromptStreamFunc(): (response: types.LLMResponse) => any {
+    const listeners = this.prompt_listeners;
+    return (response: types.LLMResponse) => {
+      listeners.map((listener) => {
+        listener(response);
       });
     };
   }
@@ -247,7 +256,35 @@ class Agent {
     this.tool_calls_listeners.push(func);
   }
 
-  public async get<K extends keyof types.AgentData>(key: K): Promise<types.AgentData[K]> {
+  public onStream(func: types.StreamFunc): void {
+    this.stream_listeners.push(func);
+  }
+
+  public onToken(func: types.StreamFunc): void {
+    this.stream_listeners.push(func);
+  }
+
+  public onPromptResponse(func: (response: types.LLMResponse) => any) {
+    this.prompt_listeners.push(func);
+  }
+
+  onImage(func: (img: types.LLMImageResponse) => any) {
+    this.prompt_listeners.push((response) => {
+      if (response.type !== "image") {
+        return;
+      }
+
+      func(response);
+    });
+  }
+
+  onFinish(func: (response: types.AgentResponse) => any) {
+    this.finish_listeners.push(func);
+  }
+
+  public async get<K extends keyof types.AgentData>(
+    key: K,
+  ): Promise<types.AgentData[K]> {
     if (!this.agent) {
       await this.loadAgent();
     }

@@ -1,21 +1,24 @@
 import { test, expect } from "vitest";
 import Agent from "../src/agent";
 import { AgentData } from "@scoopika/types";
-import Client from "../src/client";
+import Client from "../src/scoopika";
 
 const dummy_agent: AgentData = {
   id: "agent",
   name: "Agento",
-  description: "Agent that help make a plan for learning new things",
+  description: "an agent that help make a plan for learning new things",
   tools: [
     {
       type: "function",
-      executor: (_inputs: any) => "[Eminem - lose yourself]",
+      executor: (_inputs: any) => {
+        console.log("TOOL CALL");
+        return "[Eminem - lose yourself]";
+      },
       tool: {
         type: "function",
         function: {
           name: "get_search_history",
-          description: "Get the music search history from latest to oldest",
+          description: "Get the search history",
           parameters: {
             type: "object",
             properties: {
@@ -62,7 +65,7 @@ test("Running agent with tools and history", async () => {
     engines: {
       fireworks: process.env["FIREWORKS_API"],
     },
-  })
+  });
 
   const agent = await new Agent("agent", client, {
     agent: dummy_agent,
@@ -71,13 +74,20 @@ test("Running agent with tools and history", async () => {
   const run = await agent.run({
     session_id: "session1",
     topic: "playing guitar",
-    message: "I want to learn how to play the latest song I searched for",
+    message:
+      "I want to learn how to play the chords of the latest song I searched for",
   });
 
   const run2 = await agent.run({
     session_id: "session1",
-    message: "What was the latest song I searched for again?",
+    message: "What was the name of the latest song I searched for again ?",
+    plug: {
+      rag: "New latest search result:\nEagles - Hotel California",
+    },
   });
+
+  console.log(run);
+  console.log(run2);
 
   expect(typeof run.responses.main.content).toBe("string");
   expect(run.responses.main.type).toBe("text");
@@ -88,6 +98,6 @@ test("Running agent with tools and history", async () => {
   expect(
     String(run2.responses.main.content)
       .toLowerCase()
-      .includes("lose yourself"),
+      .includes("hotel california"),
   ).toBe(true);
 });
