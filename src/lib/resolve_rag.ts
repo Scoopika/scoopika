@@ -16,7 +16,8 @@ async function resolveRAG(inputs: Inputs): Promise<Inputs> {
 
   return {
     ...inputs,
-    message: "More data that might be helpful:\n" + rag + "\n\n" + inputs.message,
+    message:
+      "More data that might be helpful:\n" + rag + "\n\n" + inputs.message,
   };
 }
 

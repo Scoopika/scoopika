@@ -16,7 +16,7 @@ class Box {
 
   mentions: boolean = true;
   running_agent: string = "NONE";
-  
+
   stream_listeners: types.BoxStreamFunc[] = [];
   prompt_listeners: ((response: types.LLMResponse) => any)[] = [];
   agent_selection_listeners: ((agent: types.AgentData) => any)[] = [];
@@ -27,13 +27,7 @@ class Box {
   constructor(
     id: string,
     client: Scoopika,
-    {
-      box,
-      engines,
-      system_prompt,
-      tools,
-      mentions,
-    }: {
+    options?: {
       box?: types.BoxData;
       engines?: types.RawEngines;
       system_prompt?: string;
@@ -43,6 +37,13 @@ class Box {
   ) {
     this.id = id;
     this.client = client;
+
+    if (!options) {
+      return;
+    }
+
+    const { box, engines, system_prompt, mentions, tools } = options;
+
     this.box = box;
 
     if (engines) {
@@ -123,7 +124,7 @@ class Box {
           tools: [
             ...agentData.tools,
             ...this.tools,
-            ...(this.agents_tools[agentData.name.toLowerCase()] || [])
+            ...(this.agents_tools[agentData.name.toLowerCase()] || []),
           ],
         },
       });
@@ -363,23 +364,25 @@ class Box {
     this.finish_listeners.push(func);
   }
 
-  addGlobalTool(func: (args: Record<string, any>) => any, tool: types.ToolFunction) {
+  addGlobalTool(
+    func: (args: Record<string, any>) => any,
+    tool: types.ToolFunction,
+  ) {
     this.tools.push({
       type: "function",
       executor: func,
       tool: {
         type: "function",
-        function: tool
-      }
-    })
+        function: tool,
+      },
+    });
   }
 
   addTool(
     agent_name: string,
     func: (args: Record<string, any>) => any,
-    tool: types.ToolFunction
+    tool: types.ToolFunction,
   ) {
-
     if (!this.agents_tools[agent_name.toLowerCase()]) {
       this.agents_tools[agent_name.toLowerCase()] = [];
     }
@@ -389,9 +392,9 @@ class Box {
       executor: func,
       tool: {
         type: "function",
-        function: tool
-      }
-    })
+        function: tool,
+      },
+    });
   }
 
   system_prompt = `You are a manager that chooses from a number of AI agents to execute a specific task. choose the most suitable agent for the task.`;

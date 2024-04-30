@@ -94,12 +94,12 @@ box.addGlobalTool(() => {}, {
     properties: {
       data: {
         type: "string",
-        description: "The data to be saved as text"
-      }
+        description: "The data to be saved as text",
+      },
     },
-    required: ["data"]
-  }
-})
+    required: ["data"],
+  },
+});
 
 box
   .run({ session_id: "s123", message: "my research topic is about robotics" })

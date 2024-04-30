@@ -1,8 +1,8 @@
 {
   "name": "@scoopika/scoopika",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Create magical AI agents and boxes with multiple agents in seconds",
-  "main": "dist/src/main.js",
+  "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
     "build": "npx tsup --dts-resolve",

@@ -25,12 +25,7 @@ class Agent {
   constructor(
     id: string,
     client: Scoopika,
-    {
-      agent,
-      engines,
-      stateStore,
-      streamFunc,
-    }: {
+    options?: {
       agent?: types.AgentData;
       engines?: types.RawEngines;
       stateStore?: StateStore;
@@ -38,13 +33,21 @@ class Agent {
     },
   ) {
     this.client = client;
+    this.id = id;
 
-    if (!stateStore) {
-      stateStore = new StateStore();
+    if (!options) {
+      this.stateStore = new StateStore();
+      return;
     }
 
-    this.stateStore = stateStore;
-    this.id = id;
+    let { agent, stateStore, engines, streamFunc } = options;
+
+    if (stateStore) {
+      this.stateStore = new StateStore();
+    } else {
+      this.stateStore = new StateStore();
+    }
+
     if (agent) {
       this.agent = agent;
     }

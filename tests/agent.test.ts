@@ -86,9 +86,6 @@ test("Running agent with tools and history", async () => {
     },
   });
 
-  console.log(run);
-  console.log(run2);
-
   expect(typeof run.responses.main.content).toBe("string");
   expect(run.responses.main.type).toBe("text");
 

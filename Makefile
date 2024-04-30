@@ -6,3 +6,6 @@ build:
 
 install:
 	npm install
+
+final:
+	npm run test && npm run prettier && npm run build
