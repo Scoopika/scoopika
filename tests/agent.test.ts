@@ -44,7 +44,7 @@ const dummy_agent: AgentData = {
       options: {},
       type: "text",
       content:
-        "you respond 3 main tips about how to learn the topic $topic. juts 3 main tips a nothing else",
+        "you respond with 3 main tips about how to learn the topic $topic. juts 3 main tips a nothing else",
       inputs: [
         {
           id: "topic",
@@ -72,29 +72,35 @@ test("Running agent with tools and history", async () => {
   }).load();
 
   const run = await agent.run({
-    session_id: "session1",
-    topic: "playing guitar",
-    message:
-      "I want to learn how to play the chords of the latest song I searched for",
-  });
-
-  const run2 = await agent.run({
-    session_id: "session1",
-    message: "What was the name of the latest song I searched for again ?",
-    plug: {
-      rag: "New latest search result:\nEagles - Hotel California",
+    inputs: {
+      session_id: "session123",
+      topic: "playing guitar",
+      message:
+        "I want to learn how to play the chords of the latest song I searched for",
     },
   });
 
-  expect(typeof run.responses.main.content).toBe("string");
-  expect(run.responses.main.type).toBe("text");
+  console.log(run);
 
-  expect(run.session_id).toBe("session1");
-  expect(run2.responses.main.type).toBe("text");
-  expect(run2.session_id).toBe("session1");
+  const run2 = await agent.run({
+    inputs: {
+      session_id: "session123",
+      message: "What was the name of the latest song I searched for again ?",
+      plug: {
+        rag: "New latest search result:\nEagles - Hotel California",
+      },
+    },
+  });
+
+  console.log(run2);
+
+  expect(typeof run.response.content).toBe("string");
+  expect(run.response.type).toBe("text");
+
+  expect(run.session_id).toBe("session123");
+  expect(run2.response.type).toBe("text");
+  expect(run2.session_id).toBe("session123");
   expect(
-    String(run2.responses.main.content)
-      .toLowerCase()
-      .includes("hotel california"),
+    String(run2.response.content).toLowerCase().includes("hotel california"),
   ).toBe(true);
 });

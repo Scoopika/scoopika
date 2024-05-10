@@ -1,14 +1,30 @@
-import { ToolSchema, FunctionToolSchema, ApiToolSchema } from "@scoopika/types";
-import validate from "./lib/validate";
+import {
+  ToolSchema,
+  FunctionToolSchema,
+  ApiToolSchema,
+  ServerClientActionStream,
+} from "@scoopika/types";
+import validate, { validateObject } from "./lib/validate";
 
 class ToolRun {
+  id: string;
+  run_id: string;
   tool: ToolSchema;
   args: Record<string, any>;
+  clientSideHook?: (action: ServerClientActionStream["data"]) => any;
 
-  constructor(tool: ToolSchema, args: Record<string, any>) {
-    validate(tool.tool.function.parameters, args);
+  constructor(
+    id: string,
+    run_id: string,
+    tool: ToolSchema,
+    args: Record<string, any>,
+    clientSideHook?: (action: ServerClientActionStream["data"]) => any,
+  ) {
+    this.id = id;
+    this.run_id = run_id;
     this.tool = tool;
     this.args = args;
+    this.clientSideHook = clientSideHook;
   }
 
   // the tool result can be anything, that's why it's any
@@ -17,10 +33,24 @@ class ToolRun {
       return JSON.stringify(result);
     }
 
-    return JSON.stringify({ result });
+    return `${result}`;
   }
 
-  async execute(): Promise<{ result: string }> {
+  async execute(): Promise<any> {
+    const parameters = this.tool.tool.function.parameters;
+    const validated_args = validateObject(
+      parameters.properties,
+      parameters.required || [],
+      this.args,
+    );
+
+    if (!validated_args.success) {
+      return `ERROR: ${validated_args.error}`;
+    }
+
+    validate(parameters, validated_args.data);
+    this.args = validated_args.data;
+
     if (this.tool.type === "function") {
       return await this.executeFunction(this.tool);
     }
@@ -29,11 +59,27 @@ class ToolRun {
       return await this.executeApi(this.tool);
     }
 
-    return { result: this.toolResult("Invalid tool execution") };
+    if (this.tool.type !== "client-side") {
+      throw new Error("ERROR: Unknown tool type");
+    }
+
+    if (!this.clientSideHook) {
+      throw new Error(
+        "Needed to execute a tool on the client side but no hooks are found",
+      );
+    }
+
+    await this.clientSideHook({
+      id: this.id,
+      tool_name: this.tool.tool.function.name,
+      arguments: validated_args.data,
+    });
+
+    return "Performed Action!";
   }
 
   async executeFunction(tool: FunctionToolSchema): Promise<{ result: string }> {
-    let result = await tool.executor(this.args);
+    const result = await tool.executor(this.args);
     return { result: this.toolResult(result) };
   }
 

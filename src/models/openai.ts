@@ -12,20 +12,19 @@ const openai: types.LLMHost<OpenAI> = {
   helpers: {},
 
   text: async (
-    prompt_name: string,
     run_id: string,
     client: OpenAI,
     stream: types.StreamFunc,
     inputs: types.LLMFunctionBaseInputs,
   ): Promise<types.LLMTextResponse> => {
     const completion_inputs = setupInputs(inputs);
-    const options_string = JSON.stringify(completion_inputs.options);
+    const options = JSON.parse(JSON.stringify(completion_inputs.options));
     delete completion_inputs.options;
 
     const response = await client.chat.completions.create({
       ...(completion_inputs as ChatCompletionCreateParamsStreaming),
       stream: true,
-      ...JSON.parse(options_string),
+      ...options,
     } as ChatCompletionCreateParamsStreaming);
 
     let response_message: string = "";
@@ -34,8 +33,8 @@ const openai: types.LLMHost<OpenAI> = {
     for await (const chunk of response) {
       if (chunk.choices[0].delta.content) {
         response_message += chunk.choices[0].delta.content;
-        stream({
-          prompt_name,
+        await stream({
+          type: "text",
           run_id,
           content: chunk.choices[0].delta.content,
         });
@@ -47,7 +46,7 @@ const openai: types.LLMHost<OpenAI> = {
         continue;
       }
 
-      calls.map((call) => {
+      for await (const call of calls) {
         const saved_call = tool_calls[call.index];
         if (!saved_call) {
           tool_calls[call.index] = {
@@ -58,7 +57,7 @@ const openai: types.LLMHost<OpenAI> = {
               arguments: call.function?.arguments || "",
             },
           };
-          return;
+          continue;
         }
 
         if (call.id && saved_call.id !== saved_call.id) {
@@ -66,7 +65,7 @@ const openai: types.LLMHost<OpenAI> = {
         }
 
         if (!call.function) {
-          return;
+          continue;
         }
 
         if (
@@ -82,7 +81,7 @@ const openai: types.LLMHost<OpenAI> = {
         ) {
           tool_calls[call.index].function.arguments += call.function.arguments;
         }
-      });
+      }
     }
 
     if (!tool_calls) {
@@ -96,30 +95,30 @@ const openai: types.LLMHost<OpenAI> = {
     );
 
     if (response_message.length === 0 && tool_calls.length === 0) {
-      return openai.text(prompt_name, run_id, client, stream, {
+      return openai.text(run_id, client, stream, {
         ...inputs,
         tools: [],
       });
     }
 
-    return { type: "text", content: response_message, tool_calls };
+    return {
+      type: "text",
+      content: response_message,
+      tool_calls,
+      tools_history: [],
+    };
   },
 
   json: async (
     client: OpenAI,
     inputs: types.LLMFunctionBaseInputs,
     schema: types.ToolParameters,
+    stream: types.StreamFunc,
   ): Promise<types.LLMJsonResponse> => {
-    const response = await openai.text(
-      "",
-      "json_mode",
-      client,
-      (_stream) => {},
-      {
-        ...inputs,
-        response_format: { type: "json_object", schema },
-      },
-    );
+    const response = await openai.text("json_mode", client, () => {}, {
+      ...inputs,
+      response_format: { type: "json_object", schema },
+    });
 
     if (!response.content || response.content.length < 1) {
       throw new Error(
@@ -146,9 +145,11 @@ const openai: types.LLMHost<OpenAI> = {
   },
 
   image: async (
+    run_id: string,
     client: OpenAI,
+    stream: types.StreamFunc,
     inputs: types.LLMFunctionImageInputs,
-  ): Promise<types.LLMResponse> => {
+  ): Promise<types.LLMImageResponse> => {
     const response = await client.images.generate({
       model: inputs.model,
       prompt: inputs.prompt,
@@ -158,11 +159,26 @@ const openai: types.LLMHost<OpenAI> = {
 
     const images = response.data;
     const images_url: string[] = [];
+
     images.map((image) => {
       const image_url = image.url;
+      const raw = image.b64_json;
+
+      if (!image_url && !raw) {
+        return;
+      }
+
       if (typeof image_url === "string") {
         images_url.push(image_url);
+      } else if (typeof raw === "string") {
+        images_url.push(raw);
       }
+
+      stream({
+        type: "image",
+        content: image_url || raw || "",
+        run_id,
+      });
     });
 
     return { type: "image", content: images_url };

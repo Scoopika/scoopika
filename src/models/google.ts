@@ -9,7 +9,6 @@ const google: types.LLMHost<GoogleGenerativeAI> = {
   system_role: "user",
 
   text: async (
-    prompt_name: string,
     run_id: string,
     client: GoogleGenerativeAI,
     stream: types.StreamFunc,
@@ -51,7 +50,15 @@ const google: types.LLMHost<GoogleGenerativeAI> = {
     let input: string | Part[];
 
     if (inputs.messages[inputs.messages.length - 1].role === "user") {
-      input = inputs.messages[inputs.messages.length - 1].content;
+      const latest = inputs.messages[inputs.messages.length - 1].content;
+      if (typeof latest === "string") {
+        input = latest;
+      } else {
+        const recent_text = latest.filter(
+          (l) => l.type === "text",
+        ) as types.UserTextContent[];
+        input = recent_text.length > 0 ? recent_text[0].text : "";
+      }
     } else {
       input = [history[history.length - 1].parts[0]];
       history = history.slice(0, history.length - 1);
@@ -72,7 +79,7 @@ const google: types.LLMHost<GoogleGenerativeAI> = {
       const text = chunk.text();
       if (text) {
         response_message += text;
-        stream({ prompt_name, content: text, run_id });
+        stream({ type: "text", content: text, run_id });
       }
 
       const calls = chunk.functionCalls();
@@ -102,6 +109,7 @@ const google: types.LLMHost<GoogleGenerativeAI> = {
       content: response_message,
       tool_calls,
       follow_up_history,
+      tools_history: [],
     };
   },
 
@@ -160,7 +168,7 @@ const google: types.LLMHost<GoogleGenerativeAI> = {
     };
   },
 
-  image: async (_client, _inputs: types.LLMFunctionImageInputs) => {
+  image: async (...args: any) => {
     throw new Error(
       new_error(
         "image_generation_not_available",

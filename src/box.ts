@@ -18,7 +18,6 @@ class Box {
   running_agent: string = "NONE";
 
   stream_listeners: types.BoxStreamFunc[] = [];
-  prompt_listeners: ((response: types.LLMResponse) => any)[] = [];
   agent_selection_listeners: ((agent: types.AgentData) => any)[] = [];
   finish_listeners: ((
     response: { name: string; run: types.AgentResponse }[],
@@ -37,6 +36,10 @@ class Box {
   ) {
     this.id = id;
     this.client = client;
+
+    if (client.loaded_boxes[id]) {
+      this.box = client.loaded_boxes[id];
+    }
 
     if (!options) {
       return;
@@ -74,9 +77,13 @@ class Box {
     return this;
   }
 
-  async run(
-    inputs: types.Inputs,
-  ): Promise<{ name: string; run: types.AgentResponse }[]> {
+  async run({
+    inputs,
+    hooks,
+  }: {
+    inputs: types.Inputs;
+    hooks?: types.BoxHooks;
+  }): Promise<{ name: string; run: types.AgentResponse }[]> {
     if (!this.box) {
       await this.load();
     }
@@ -89,8 +96,21 @@ class Box {
     const box = this.box as types.BoxData;
     const session = await this.client.getSession(session_id);
     const run_id = "run_" + crypto.randomUUID();
-    const streamFunc = this.getStreamFunc();
-    const promptStreamFunc = this.getPromptStreamFunc();
+    const run_listeners: ((s: types.StreamMessage) => any)[] = [];
+
+    if (hooks && hooks.onStream) {
+      run_listeners.push(hooks.onStream);
+    }
+
+    if (hooks && hooks.onToken) {
+      run_listeners.push((s: types.StreamMessage) => {
+        if (hooks.onToken) {
+          hooks.onToken(s.content);
+        }
+      });
+    }
+
+    const streamFunc = this.getStreamFunc(run_listeners);
 
     if (typeof inputs.run_id !== "string") {
       inputs.run_id = run_id;
@@ -118,6 +138,11 @@ class Box {
       }
 
       this.agent_selection_listeners.forEach((listener) => listener(agentData));
+
+      if (hooks?.onSelectAgent) {
+        hooks.onSelectAgent(agentData);
+      }
+
       const agent = new Agent(agentData.id, this.client, {
         agent: {
           ...agentData,
@@ -130,27 +155,34 @@ class Box {
       });
 
       agent.onStream((stream: types.StreamMessage) => {
+        if (stream.type !== "text") return;
         streamFunc({
-          prompt_name: stream.prompt_name,
           run_id: stream.run_id,
-          content: stream.content,
+          type: stream.type,
           agent_name: this.running_agent,
+          content: stream.content,
         });
-      });
-
-      agent.onPromptResponse((response) => {
-        promptStreamFunc(response);
       });
 
       this.running_agent = agentData.name;
       const run = await agent.run({
-        ...inputs,
-        message: selected.instructions,
+        inputs: {
+          ...inputs,
+          message: selected.instructions,
+        },
       });
       responses.push({ name: agentData.name, run });
+
+      if (hooks?.onAgentResponse) {
+        hooks.onAgentResponse({ name: agentData.name, response: run });
+      }
     }
 
     this.finish_listeners.forEach((listener) => listener(responses));
+
+    if (hooks?.onBoxFinish) {
+      hooks.onBoxFinish(responses);
+    }
 
     return responses;
   }
@@ -199,7 +231,7 @@ class Box {
 
     const { model, client } = this.getClient();
     const tools = this.buildTools();
-    const modelRunner = new Model(client, undefined, tools);
+    const modelRunner = new Model(client, tools);
     const LLM_inputs: types.LLMFunctionBaseInputs = {
       tools: tools.map((tool) => tool.tool),
       tool_choice: "any",
@@ -210,15 +242,15 @@ class Box {
       },
     };
 
-    const run = await modelRunner.baseRun(
-      "BOX",
-      () => {},
-      () => {},
-      LLM_inputs,
-      false,
-      undefined,
-      false,
-    );
+    const run = await modelRunner.baseRun({
+      run_id: "BOX",
+      stream: () => {},
+      onToolCall: () => {},
+      onToolRes: () => {},
+      updateHistory: () => {},
+      inputs: LLM_inputs,
+      execute_tools: false,
+    });
 
     if (!run.tool_calls || run.tool_calls.length < 1) {
       return [];
@@ -315,43 +347,17 @@ class Box {
     return tools;
   }
 
-  getStreamFunc(): types.BoxStreamFunc {
-    const listeners = this.stream_listeners;
+  getStreamFunc(run_listeners?: types.BoxStreamFunc[]): types.BoxStreamFunc {
+    const listeners = [...this.stream_listeners, ...(run_listeners || [])];
+
     return (message: types.BoxStream) => {
       listeners.map((listener) => listener(message));
-    };
-  }
-
-  getPromptStreamFunc(): (response: types.LLMResponse) => any {
-    const listeners = this.prompt_listeners;
-    return (response: types.LLMResponse) => {
-      listeners.map((listener) => {
-        listener(response);
-      });
     };
   }
 
   onStream(func: types.BoxStreamFunc) {
     this.stream_listeners.push(func);
     return this;
-  }
-
-  onPromptResponse(func: (response: types.LLMResponse) => any) {
-    this.prompt_listeners.push(func);
-  }
-
-  onToken(func: (message: types.StreamMessage) => any) {
-    this.stream_listeners.push(func);
-  }
-
-  onImage(func: (img: types.LLMImageResponse) => any) {
-    this.prompt_listeners.push((response) => {
-      if (response.type !== "image") {
-        return;
-      }
-
-      func(response);
-    });
   }
 
   onSelectAgent(func: (agent: types.AgentData) => any) {
@@ -364,10 +370,7 @@ class Box {
     this.finish_listeners.push(func);
   }
 
-  addGlobalTool(
-    func: (args: Record<string, any>) => any,
-    tool: types.ToolFunction,
-  ) {
+  addGlobalTool(func: (args: any) => any, tool: types.ToolFunction) {
     this.tools.push({
       type: "function",
       executor: func,
@@ -380,7 +383,7 @@ class Box {
 
   addTool(
     agent_name: string,
-    func: (args: Record<string, any>) => any,
+    func: (args: any) => any,
     tool: types.ToolFunction,
   ) {
     if (!this.agents_tools[agent_name.toLowerCase()]) {

@@ -1,6 +1,6 @@
 {
   "name": "@scoopika/scoopika",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "Create magical AI agents and boxes with multiple agents in seconds",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -18,7 +18,7 @@
     "AI Boxes"
   ],
   "devDependencies": {
-    "@scoopika/types": "^1.2.2",
+    "@scoopika/types": "^1.6.7",
     "@types/node": "^20.12.7",
     "@vitest/coverage-v8": "^1.5.0",
     "dotenv": "^16.4.5",
@@ -28,7 +28,12 @@
   },
   "dependencies": {
     "@google/generative-ai": "^0.7.0",
+    "@types/turndown": "^5.0.4",
     "ajv": "^8.12.0",
-    "openai": "^4.33.0"
+    "axios": "^1.6.8",
+    "cheerio": "^1.0.0-rc.12",
+    "json-schema-to-ts": "^3.1.0",
+    "openai": "^4.33.0",
+    "turndown": "^7.1.3"
   }
 }

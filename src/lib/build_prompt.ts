@@ -32,8 +32,6 @@ function buildPrompt(
     }
   });
 
-  // console.log(content);
-
   return {
     content: content,
     missing: missingInputs,
@@ -49,11 +47,11 @@ function getInputValue(
   | undefined {
   const value: string | undefined = data[input.id] || input.default;
 
-  if (!value && input.required) {
+  if (value === undefined && input.required) {
     return { success: false, errors: ["missing"] };
   }
 
-  if (!value) {
+  if (typeof value !== "boolean" && !value) {
     return undefined;
   }
 

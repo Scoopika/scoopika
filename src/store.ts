@@ -1,33 +1,62 @@
-import new_error from "./lib/error";
-import { LLMHistory, Store, StoreSession } from "@scoopika/types";
+import { LLMHistory, RunHistory, Store, StoreSession } from "@scoopika/types";
+import crypto from "node:crypto";
 
 class InMemoryStore implements Store {
   public history: Record<string, LLMHistory[]> = {};
   public sessions: Record<string, StoreSession> = {};
+  public users_sessions: Record<string, string[]> = {};
+  public runs: Record<string, RunHistory[]> = {};
 
   constructor() {}
 
-  checkSession(session: StoreSession): undefined {
-    const sessions = this.sessions[session.id];
-    if (!sessions) {
-      throw new Error(
-        new_error(
-          "session_notfound",
-          `The session '${session.id}' does not exist`,
-          "session check",
-        ),
-      );
-    }
-  }
+  async newSession({
+    id,
+    user_id,
+    user_name,
+  }: {
+    id?: string;
+    user_id?: string;
+    user_name?: string;
+  }) {
+    const session_id = id || "session_" + crypto.randomUUID();
 
-  async newSession(id: string, user_name?: string) {
-    this.sessions[id] = { id, user_name, saved_prompts: {} };
-    this.history[id] = [];
+    this.sessions[session_id] = {
+      id: session_id,
+      user_id,
+      user_name,
+      saved_prompts: {},
+    };
+    this.history[session_id] = [];
+    this.runs[session_id] = [];
+
+    if (!user_id) {
+      return;
+    }
+
+    if (!this.users_sessions[user_id]) {
+      this.users_sessions[user_id] = [];
+    }
+
+    this.users_sessions[user_id].push(session_id);
   }
 
   async getSession(id: string): Promise<StoreSession | undefined> {
-    const wanted_sessions = this.sessions[id];
-    return wanted_sessions;
+    const wanted_session = this.sessions[id];
+    return wanted_session;
+  }
+
+  async deleteSession(id: string) {
+    if (this.sessions[id]) {
+      delete this.sessions[id];
+    }
+
+    if (this.history[id]) {
+      delete this.history[id];
+    }
+  }
+
+  async getUserSessions(user_id: string): Promise<string[]> {
+    return this.users_sessions[user_id] || [];
   }
 
   async updateSession(
@@ -37,7 +66,7 @@ class InMemoryStore implements Store {
       saved_prompts?: Record<string, string>;
     },
   ) {
-    const session = await this.getSession(id);
+    const session = this.sessions[id];
 
     if (!session) {
       throw new Error(`Session '${id}' not found`);
@@ -47,10 +76,9 @@ class InMemoryStore implements Store {
     this.sessions[id] = new_session;
   }
 
-  async getHistory(session: StoreSession): Promise<LLMHistory[]> {
-    this.checkSession(session);
-
-    const history = this.history[session.id];
+  async getHistory(session: StoreSession | string): Promise<LLMHistory[]> {
+    const id = typeof session === "string" ? session : session.id;
+    const history = this.history[id];
 
     if (!history || history.length < 1) {
       return [];
@@ -61,13 +89,14 @@ class InMemoryStore implements Store {
   }
 
   async pushHistory(
-    session: StoreSession,
+    session: StoreSession | string,
     new_history: LLMHistory,
   ): Promise<void> {
-    if (!this.history[session.id]) {
-      this.history[session.id] = [];
+    const id = typeof session === "string" ? session : session.id;
+    if (!this.history[id]) {
+      this.history[id] = [];
     }
-    this.history[session.id].push(new_history);
+    this.history[id].push(new_history);
   }
 
   async batchPushHistory(
@@ -77,6 +106,24 @@ class InMemoryStore implements Store {
     for await (const h of new_history) {
       await this.pushHistory(session, h);
     }
+  }
+
+  async pushRun(session: StoreSession | string, run: RunHistory) {
+    const id = typeof session === "string" ? session : session.id;
+    if (!this.runs[id]) {
+      this.runs[id] = [];
+    }
+
+    this.runs[id].push(run);
+  }
+
+  async batchPushRuns(session: StoreSession | string, runs: RunHistory[]) {
+    runs.forEach((r) => this.pushRun(session, r));
+  }
+
+  async getRuns(session: StoreSession | string): Promise<RunHistory[]> {
+    const id = typeof session === "string" ? session : session.id;
+    return this.runs[id] || [];
   }
 }
 
