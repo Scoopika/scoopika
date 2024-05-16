@@ -1,19 +1,23 @@
 import new_error from "./lib/error";
 import { ToolRun } from "./tool";
 import hosts from "./models/hosts";
-import sleep from "./lib/sleep";
+import * as types from "@scoopika/types";
 
 class Model {
-  public client: LLMClient;
-  public prompt: Prompt;
-  private host: LLMHost;
-  private tools: ToolSchema[] = [];
-  private updated_history: LLMHistory[] = [];
+  public client: types.LLMClient;
+  private host: types.LLMHost<any>;
+  private tools: types.ToolSchema[] = [];
+  private updated_history: types.LLMHistory[] = [];
   private follow_up_history: any[] = [];
+  private calls: types.LLMToolCall[] = [];
+  public tools_history: {
+    call: types.LLMToolCall;
+    result: any;
+  }[] = [];
 
-  constructor(client: LLMClient, prompt: Prompt, tools?: ToolSchema[]) {
+  constructor(client: types.LLMClient, tools?: types.ToolSchema[]) {
     this.client = client;
-    this.prompt = prompt;
+
     const wanted_host = hosts[client.host];
     if (!wanted_host) {
       throw new Error(
@@ -24,6 +28,7 @@ class Model {
         ),
       );
     }
+
     this.host = wanted_host;
 
     if (tools) {
@@ -31,13 +36,27 @@ class Model {
     }
   }
 
-  async baseRun(
-    run_id: string,
-    stream: StreamFunc,
-    updateHistory: (history: LLMHistory) => undefined,
-    inputs: LLMFunctionBaseInputs,
-    timeout?: number,
-  ): Promise<LLMTextResponse> {
+  async baseRun({
+    run_id,
+    session_id,
+    stream,
+    onToolCall,
+    onToolRes,
+    updateHistory,
+    inputs,
+    execute_tools,
+    onClientAction,
+  }: {
+    run_id: string;
+    session_id: string;
+    stream: types.StreamFunc;
+    onToolCall: (call: types.LLMToolCall) => any;
+    onToolRes: (tool: { call: types.LLMToolCall; result: any }) => any;
+    updateHistory: (history: types.LLMHistory) => undefined;
+    inputs: types.LLMFunctionBaseInputs;
+    execute_tools?: boolean;
+    onClientAction?: (action: types.ServerClientActionStream["data"]) => any;
+  }): Promise<types.LLMTextResponse> {
     const messages = [
       ...inputs.messages,
       ...this.follow_up_history,
@@ -53,11 +72,18 @@ class Model {
       return output;
     }
 
-    if (!output.tool_calls || output.tool_calls?.length < 1) {
+    if (
+      !output.tool_calls ||
+      output.tool_calls?.length < 1 ||
+      execute_tools === false
+    ) {
       return output;
     }
 
-    const calls_results: ToolHistory[] = [];
+    const calls_results: types.ToolHistory[] = [];
+    if (output.tool_calls) {
+      this.calls = [...this.calls, ...output.tool_calls];
+    }
 
     for (const tool_call of output.tool_calls) {
       const call_id = tool_call.id;
@@ -77,23 +103,51 @@ class Model {
         );
       }
 
+      try {
+        JSON.parse(call_function.arguments);
+      } catch {
+        throw new Error(
+          new_error(
+            "invalid_json",
+            "The LLM returned an invalid json object for the tool arguments",
+            "LLM Run",
+          ),
+        );
+      }
+
+      onToolCall(tool_call);
       const wanted_tool_schema = wanted_tools_schema[0];
-      const tool_run = new ToolRun(
-        wanted_tool_schema,
-        JSON.parse(call_function.arguments),
-      );
+      const tool_run = new ToolRun({
+        id: tool_call.id,
+        run_id,
+        session_id,
+        tool: wanted_tool_schema,
+        args: JSON.parse(call_function.arguments),
+        clientSideHook: onClientAction,
+      });
+
       const execution = await tool_run.execute();
+
+      onToolRes({
+        call: tool_call,
+        result: execution,
+      });
+
+      this.tools_history.push({
+        call: tool_call,
+        result: execution,
+      });
 
       calls_results.push({
         role: "tool",
         tool_call_id: call_id,
         name: call_function.name,
-        content: execution.result,
+        content: execution,
       });
     }
 
     calls_results.forEach((call) => {
-      const tool_call: LLMHistory = {
+      const tool_call: types.LLMHistory = {
         role: "tool",
         tool_call_id: call.tool_call_id,
         name: call.name,
@@ -103,31 +157,49 @@ class Model {
       updateHistory(tool_call);
     });
 
+    // Only used with Google Gemini, and running Google LLMs is not recommended anyways
+    // So almost useless, just keep it for later
     if (output.follow_up_history) {
       this.follow_up_history = output.follow_up_history;
     }
 
     if (calls_results.length > 0) {
-      if (timeout) {
-        await sleep(timeout);
-      }
-      return await this.baseRun(run_id, stream, updateHistory, inputs);
+      return await this.baseRun({
+        run_id,
+        session_id,
+        stream,
+        onToolCall,
+        onToolRes,
+        updateHistory,
+        inputs,
+        execute_tools,
+        onClientAction,
+      });
     }
 
-    return output;
+    return {
+      ...output,
+      tool_calls: this.calls,
+      tools_history: this.tools_history,
+    };
   }
 
   async jsonRun(
-    inputs: LLMFunctionBaseInputs,
-    schema: ToolParameters,
-  ): Promise<LLMJsonResponse> {
-    const response = this.host.json(this.client.client, inputs, schema);
+    inputs: types.LLMFunctionBaseInputs,
+    schema: types.ToolParameters,
+    stream: types.StreamFunc,
+  ): Promise<types.LLMJsonResponse> {
+    const response = this.host.json(this.client.client, inputs, schema, stream);
 
     return response;
   }
 
-  async imageRun(inputs: LLMFunctionImageInputs) {
-    return await this.host.image(this.client.client, inputs);
+  async imageRun(
+    run_id: string,
+    stream: types.StreamFunc,
+    inputs: types.LLMFunctionImageInputs,
+  ) {
+    return await this.host.image(run_id, this.client.client, stream, inputs);
   }
 }
 

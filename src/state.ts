@@ -22,12 +22,11 @@ class StateStore {
   }
 
   async queueRun(id: string, run_id: string, timeout?: number) {
-
     if (!this.queue[id]) {
       this.queue[id] = [];
     }
 
-    this.queue[id].push(run_id)
+    this.queue[id].push(run_id);
 
     let total_sleep: number = 0;
     while (this.state[id] !== 0 && this.queue[id].indexOf(run_id) === 0) {
@@ -35,13 +34,14 @@ class StateStore {
       total_sleep += 10;
 
       if (typeof timeout === "number" && total_sleep >= timeout) {
-        throw new Error(new_error(
-          "run_timeout_reached",
-          `The run queue timeout of ${timeout}ms has been reached`,
-          "run_queue"
-        ))
+        throw new Error(
+          new_error(
+            "run_timeout_reached",
+            `The run queue timeout of ${timeout}ms has been reached`,
+            "run_queue",
+          ),
+        );
       }
-
     }
 
     this.setState(id, 1);

@@ -1,6 +1,8 @@
-build:
-	npm run build
+t:
+	bun run test
 
-setup:
-	npm install
-	git clone https://github.com/scoopika/scoopika-types
+b:
+	bun run build
+
+f:
+	bun run test && bun run prettier && bun run build

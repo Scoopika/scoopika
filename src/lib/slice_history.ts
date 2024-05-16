@@ -1,3 +1,5 @@
+import { LLMHistory } from "@scoopika/types";
+
 function sliceHistory(history: LLMHistory[], max?: number): LLMHistory[] {
   if (typeof max !== "number") {
     max = 20;

@@ -1,3 +1,5 @@
+import { Prompt, PromptInput, Tool, Parameter } from "@scoopika/types";
+
 function promptToTool(
   prompt: Prompt,
   inputs: PromptInput[],

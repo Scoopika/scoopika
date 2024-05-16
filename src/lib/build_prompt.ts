@@ -1,10 +1,15 @@
-function buildPrompt(prompt: Prompt, data: Inputs): BuiltPrompt {
+import * as types from "@scoopika/types";
+
+function buildPrompt(
+  prompt: types.Prompt,
+  data: types.Inputs,
+): types.BuiltPrompt {
   const inputs = prompt.inputs;
   let content = prompt.content;
 
-  const missingInputs: PromptInput[] = [];
+  const missingInputs: types.PromptInput[] = [];
 
-  inputs.map((input: PromptInput) => {
+  inputs.map((input: types.PromptInput) => {
     const value = getInputValue(input, data);
 
     if (value === undefined) {
@@ -22,8 +27,8 @@ function buildPrompt(prompt: Prompt, data: Inputs): BuiltPrompt {
       value.value = String(value.value);
     }
 
-    while (content.includes(`<<${input.id}>>`)) {
-      content = content.replace(`<<${input.id}>>`, value.value);
+    while (content.includes(`$${input.id}`)) {
+      content = content.replace(`$${input.id}`, value.value);
     }
   });
 
@@ -34,16 +39,19 @@ function buildPrompt(prompt: Prompt, data: Inputs): BuiltPrompt {
 }
 
 function getInputValue(
-  input: PromptInput,
+  input: types.PromptInput,
   data: Record<string, any>,
-): FuncResponse | undefined {
+):
+  | { success: true; value: any }
+  | { success: false; errors: string[] }
+  | undefined {
   const value: string | undefined = data[input.id] || input.default;
 
-  if (!value && input.required) {
+  if (value === undefined && input.required) {
     return { success: false, errors: ["missing"] };
   }
 
-  if (!value) {
+  if (typeof value !== "boolean" && !value) {
     return undefined;
   }
 

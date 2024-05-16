@@ -1,44 +1,62 @@
-import new_error from "./lib/error";
+import { LLMHistory, RunHistory, Store, StoreSession } from "@scoopika/types";
+import crypto from "node:crypto";
 
-class InMemoryStore {
-  history: Record<string, LLMHistory[]> = {};
-  sessions: StoreSession[] = [];
+class InMemoryStore implements Store {
+  public history: Record<string, LLMHistory[]> = {};
+  public sessions: Record<string, StoreSession> = {};
+  public users_sessions: Record<string, string[]> = {};
+  public runs: Record<string, RunHistory[]> = {};
 
   constructor() {}
 
-  checkSession(session: StoreSession): undefined {
-    const sessions = this.sessions.filter((s) => s.id === session.id);
-    if (sessions.length < 1 || !this.history[session.id]) {
-      throw new Error(
-        new_error(
-          "session_notfound",
-          `The session '${session.id}' does not exist`,
-          "session check",
-        ),
-      );
+  async newSession({
+    id,
+    user_id,
+    user_name,
+  }: {
+    id?: string;
+    user_id?: string;
+    user_name?: string;
+  }) {
+    const session_id = id || "session_" + crypto.randomUUID();
+
+    this.sessions[session_id] = {
+      id: session_id,
+      user_id,
+      user_name,
+      saved_prompts: {},
+    };
+    this.history[session_id] = [];
+    this.runs[session_id] = [];
+
+    if (!user_id) {
+      return;
+    }
+
+    if (!this.users_sessions[user_id]) {
+      this.users_sessions[user_id] = [];
+    }
+
+    this.users_sessions[user_id].push(session_id);
+  }
+
+  async getSession(id: string): Promise<StoreSession | undefined> {
+    const wanted_session = this.sessions[id];
+    return wanted_session;
+  }
+
+  async deleteSession(id: string) {
+    if (this.sessions[id]) {
+      delete this.sessions[id];
+    }
+
+    if (this.history[id]) {
+      delete this.history[id];
     }
   }
 
-  async newSession(id: string, user_name?: string) {
-    this.sessions.push({ id, user_name, saved_prompts: {} });
-    this.history[id] = [];
-  }
-
-  async getSession(id: string): Promise<StoreSession> {
-    const wanted_sessions = this.sessions.filter((s) => s.id === id);
-
-    if (wanted_sessions.length < 1) {
-      throw new Error(
-        new_error(
-          "session_not_found",
-          `The session with ID ${id} is not found in session store.
-        make sure to create a new session first`,
-          "Get session",
-        ),
-      );
-    }
-
-    return wanted_sessions[0];
+  async getUserSessions(user_id: string): Promise<string[]> {
+    return this.users_sessions[user_id] || [];
   }
 
   async updateSession(
@@ -48,16 +66,19 @@ class InMemoryStore {
       saved_prompts?: Record<string, string>;
     },
   ) {
-    const session = await this.getSession(id);
-    const new_session = { ...session, ...new_data };
+    const session = this.sessions[id];
 
-    this.sessions[this.sessions.indexOf(session)] = new_session;
+    if (!session) {
+      throw new Error(`Session '${id}' not found`);
+    }
+
+    const new_session = { ...session, ...new_data };
+    this.sessions[id] = new_session;
   }
 
-  async getHistory(session: StoreSession) {
-    this.checkSession(session);
-
-    const history = this.history[session.id];
+  async getHistory(session: StoreSession | string): Promise<LLMHistory[]> {
+    const id = typeof session === "string" ? session : session.id;
+    const history = this.history[id];
 
     if (!history || history.length < 1) {
       return [];
@@ -67,14 +88,42 @@ class InMemoryStore {
     return JSON.parse(string_history) as LLMHistory[];
   }
 
-  async pushHistory(session: StoreSession, new_history: LLMHistory) {
-    this.history[session.id].push(new_history);
+  async pushHistory(
+    session: StoreSession | string,
+    new_history: LLMHistory,
+  ): Promise<void> {
+    const id = typeof session === "string" ? session : session.id;
+    if (!this.history[id]) {
+      this.history[id] = [];
+    }
+    this.history[id].push(new_history);
   }
 
-  async batchPushHistory(session: StoreSession, new_history: LLMHistory[]) {
+  async batchPushHistory(
+    session: StoreSession,
+    new_history: LLMHistory[],
+  ): Promise<void> {
     for await (const h of new_history) {
       await this.pushHistory(session, h);
     }
+  }
+
+  async pushRun(session: StoreSession | string, run: RunHistory) {
+    const id = typeof session === "string" ? session : session.id;
+    if (!this.runs[id]) {
+      this.runs[id] = [];
+    }
+
+    this.runs[id].push(run);
+  }
+
+  async batchPushRuns(session: StoreSession | string, runs: RunHistory[]) {
+    runs.forEach((r) => this.pushRun(session, r));
+  }
+
+  async getRuns(session: StoreSession | string): Promise<RunHistory[]> {
+    const id = typeof session === "string" ? session : session.id;
+    return this.runs[id] || [];
   }
 }
 

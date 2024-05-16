@@ -1,255 +1,452 @@
-import config from "./config";
-import api from "./api";
-import PromptChain from "./prompt_chain";
-import InMemoryStore from "./store";
 import StateStore from "./state";
+import buildClients from "./lib/build_clients";
+import resolveInputs from "./lib/resolve_inputs";
 import crypto from "node:crypto";
+import * as types from "@scoopika/types";
+import Scoopika from "./scoopika";
+import Run from "./run";
+import mixRuns from "./lib/mix_runs";
+import { FromSchema, JSONSchema } from "json-schema-to-ts";
 
 class Agent {
-  public clients: LLMClient[] = [];
-  public agent: AgentData | null = null;
-  private id: string;
-  private url: string = config.api_url;
-  private store: InMemoryStore;
-  private stateStore: StateStore;
-  private loadedSessions: StoreSession[] = [];
-  private standalone: boolean;
-  private saved_prompts: Record<string, Record<string, string>> = {};
+  public llm_clients: types.LLMClient[] = [];
+  public agent: types.AgentData | null = null;
+  public id: string;
+  private client: Scoopika;
+  public tools: types.ToolSchema[] = [];
 
-  streamFunc: StreamFunc | undefined;
-  stream_listeners: ((message: StreamMessage) => any)[] = [];
-  status_listeners: ((status: string) => undefined)[] = [];
-  tool_calls_listeners: ((data: ToolCalledMessage) => undefined)[] = [];
+  streamFunc: types.StreamFunc | undefined;
+  stream_listeners: types.StreamFunc[] = [];
+  status_listeners: types.StatusUpdateFunc[] = [];
+  tool_calls_listeners: ((call: types.LLMToolCall) => any)[] = [];
+  tool_results_listeners: ((tool: {
+    call: types.LLMToolCall;
+    result: any;
+  }) => any)[] = [];
+  finish_listeners: ((response: types.AgentResponse) => any)[] = [];
 
-  constructor({
-    id,
-    agent,
-    llmClients,
-    stateStore,
-    store,
-    standalone,
-    streamFunc,
-  }: {
-    id: string;
-    agent?: AgentData;
-    llmClients?: LLMClient[];
-    stateStore?: StateStore;
-    store?: InMemoryStore;
-    standalone?: boolean;
-    streamFunc?: StreamFunc;
-  }) {
-    if (!stateStore) {
-      stateStore = new StateStore();
-    }
-
-    if (!store) {
-      store = new InMemoryStore();
-    }
-
-    if (typeof standalone !== "boolean") {
-      standalone = true;
-    }
-
-    this.standalone = standalone;
-    this.store = store;
-    this.stateStore = stateStore;
+  constructor(
+    id: string,
+    client: Scoopika,
+    options?: {
+      agent?: types.AgentData;
+      engines?: types.RawEngines;
+      streamFunc?: types.StreamFunc;
+    },
+  ) {
+    this.client = client;
     this.id = id;
+
+    if (client.engines) {
+      this.llm_clients = buildClients(client.engines);
+    }
+
+    if (client.loaded_agents[id]) {
+      this.agent = client.loaded_agents[id];
+    }
+
+    if (!options) {
+      return;
+    }
+
+    const { agent, engines, streamFunc } = options;
+
     if (agent) {
       this.agent = agent;
     }
 
-    if (llmClients) {
-      this.clients = llmClients;
+    if (engines) {
+      this.llm_clients = buildClients(engines);
     }
 
     this.streamFunc = streamFunc;
   }
 
-  // Sessions
-
-  public async newSession(
-    session_id: string,
-    user_name?: string,
-    add_to_store?: boolean
-  ) {
-    if (add_to_store !== false) {
-      await this.store.newSession(session_id, user_name);
-    }
-    this.loadedSessions.push({ id: session_id, user_name, saved_prompts: {} });
-    this.saved_prompts[session_id] = {};
-    this.stateStore.setState(session_id, 0);
-  }
-
-  private async getSession(id: string): Promise<StoreSession> {
-    const loaded = this.loadedSessions.filter((s) => s.id === id);
-    let session: StoreSession;
-
-    if (loaded.length > 0) {
-      session = loaded[0];
-    } else {
-      session = await this.store.getSession(id);
-      this.loadedSessions.push(session);
-    }
-
-    return session;
-  }
-
   private async loadAgent() {
-    const agent = await api.loadAgent(this.id);
+    const agent = await this.client.loadAgent(this.id);
     this.agent = agent;
   }
 
-  private async loadClients() {
-    this.clients = await api.loadClients();
+  public async load(): Promise<Agent> {
+    if (this.agent) {
+      return this;
+    }
+
+    await this.loadAgent();
+
+    if (!this.agent) {
+      throw new Error("Can't load agent data");
+    }
+
+    return this;
   }
 
   public async run({
-    session_id,
     inputs,
+    hooks,
   }: {
-    session_id: string;
-    inputs: Inputs;
-  }): Promise<AgentResponse> {
+    inputs: types.Inputs;
+    hooks?: types.Hooks;
+  }): Promise<types.AgentResponse> {
     if (!this.agent) {
       await this.loadAgent();
     }
 
-    if (this.clients.length < 1) {
-      await this.loadClients();
+    const session_id: string =
+      inputs.session_id || "session_" + crypto.randomUUID();
+    const run_id = inputs.run_id || "run_" + crypto.randomUUID();
+    const original_inputs: types.Inputs = JSON.parse(JSON.stringify(inputs));
+
+    const new_inputs: types.Inputs = {
+      ...(await resolveInputs(inputs)),
+      session_id,
+      run_id,
+    };
+
+    const start = Date.now();
+    const agent = this.agent as types.AgentData;
+    const session = await this.client.getSession(session_id);
+
+    if (inputs.save_history !== false) {
+      this.client.pushRuns(session, [
+        {
+          at: start,
+          role: "user",
+          session_id,
+          run_id,
+          user_id: session.user_id,
+          request: original_inputs,
+        },
+      ]);
     }
 
-    const agent = this.agent as AgentData;
-    const session = await this.getSession(session_id);
-    const run_id = "run_" + crypto.randomUUID();
+    if (hooks && hooks.onStart) {
+      hooks.onStart({ run_id, session_id });
+    }
 
-    await this.stateStore.queueRun(session.id, run_id, agent.timeout);
+    const run_listeners: ((s: types.StreamMessage) => any)[] = [];
 
-    const { run, saved_prompts } = await this.chainRun({ run_id, session, agent, inputs });
-    await this.store.batchPushHistory(session, run.updated_history);
-    this.updateSavedPrompts(session, saved_prompts);
+    if (hooks && hooks.onStream) {
+      run_listeners.push(hooks.onStream);
+    }
 
-    await this.stateStore.setState(session.id, 0);
+    if (hooks && hooks.onToken) {
+      run_listeners.push(async (s: types.StreamMessage) => {
+        if (hooks.onToken) {
+          hooks.onToken(s.content);
+        }
+      });
+    }
 
-    return {
-      run_id,
-      session_id: session.id,
-      responses: run.responses,
-    };
-  }
-
-  async chainRun({
-    run_id,
-    session,
-    agent,
-    inputs,
-  }: AgentRunInputs): Promise<{
-    run: AgentInnerRunResult,
-    saved_prompts: Record<string, string>
-  }> {
-    const prompt_chain = new PromptChain({
+    const history: types.LLMHistory[] = await mixRuns(
+      agent.id,
       session,
-      agent,
-      clients: this.clients,
-      stream: this.getStreamFunc(),
-      statusUpdate: this.updateStatus,
-      tools: agent.tools,
-      prompts: agent.prompts,
-      saved_prompts: this.saved_prompts[session.id] || {},
-    });
-
-    const history = this.setupHistory(
-      session,
-      inputs,
-      await this.store.getHistory(session),
+      await this.client.getSessionRuns(session),
     );
 
-    const run = await prompt_chain.run({
+    const modelRun = new Run({
+      session,
+      clients: this.llm_clients,
+      agent,
+      tools: [],
+      stream: this.getStreamFunc(run_listeners),
+      toolCallStream: this.getToolCallStreamFunc(
+        hooks?.onToolCall && [hooks.onToolCall],
+      ),
+      toolResStream: this.getToolResStreamFunc(
+        hooks?.onToolResult && [hooks.onToolResult],
+      ),
+      clientActionStream: hooks?.onClientSideAction,
+    });
+
+    const wanted_tools = await this.selectTools(modelRun, history, new_inputs);
+    modelRun.tools = wanted_tools;
+
+    const run = await modelRun.run({ run_id, inputs: new_inputs, history });
+
+    if (modelRun.built_prompt) {
+      await this.client.store.updateSession(session_id, {
+        ...session,
+        saved_prompts: {
+          ...session.saved_prompts,
+          [agent.id]: modelRun.built_prompt,
+        },
+      });
+    }
+
+    const res: types.AgentResponse = {
       run_id,
-      inputs,
+      session_id,
+      response: run.response,
+    };
+
+    if (inputs.save_history !== false) {
+      await this.client.pushRuns(session, [
+        {
+          at: Date.now(),
+          role: "agent",
+          run_id,
+          session_id,
+          agent_id: agent.id,
+          agent_name: agent.name,
+          response: run.response,
+          tools: run.tools_history,
+        },
+      ]);
+    }
+
+    this.finish_listeners.forEach((listener) => listener(res));
+
+    if (hooks?.onFinish) {
+      hooks.onFinish(res);
+    }
+
+    if (hooks?.onAgentResponse) {
+      hooks.onAgentResponse({
+        name: agent.name,
+        response: res,
+      });
+    }
+
+    return res;
+  }
+
+  public async structuredOutput<Data = Record<string, any>>({
+    inputs,
+    schema,
+    system_prompt,
+  }: {
+    inputs: types.Inputs;
+    schema: types.ToolParameters | JSONSchema;
+    system_prompt?: string;
+  }): Promise<Data> {
+    if (!this.agent) {
+      await this.loadAgent();
+    }
+
+    const session_id: string =
+      typeof inputs.session_id === "string"
+        ? inputs.session_id
+        : "session_" + crypto.randomUUID();
+
+    const agent = this.agent as types.AgentData;
+    const session = await this.client.getSession(session_id);
+    const new_inputs: types.Inputs = await resolveInputs(inputs);
+
+    const history: types.LLMHistory[] = await mixRuns(
+      "STRUCTURED",
+      session,
+      await this.client.getSessionRuns(session),
+    );
+
+    const modelRun = new Run({
+      session,
+      clients: this.llm_clients,
+      agent,
+      tools: [...this.tools, ...(agent.tools || []), ...(inputs.tools || [])],
+      stream: () => {},
+      toolCallStream: () => {},
+      toolResStream: () => {},
+    });
+    const output = await modelRun.jsonRun<Data>({
+      inputs: new_inputs,
+      schema: schema as types.ToolParameters,
       history,
-      wanted_responses: agent.wanted_responses,
-      timeout: agent.timeout,
+      system_prompt,
     });
 
+    return output;
+  }
 
-    const updated_history = run.updated_history.map((h) => {
-      if (h.role === "model") {
-        h.name = agent.name;
+  private getStreamFunc(
+    run_listeners?: ((stream: types.StreamMessage) => void)[],
+  ): types.StreamFunc {
+    const listeners = [...this.stream_listeners, ...(run_listeners || [])];
+    return (message: types.StreamMessage) => {
+      for (const l of listeners) {
+        l(message);
       }
-
-      return h;
-    });
-
-    if (typeof inputs.message === "string") {
-      updated_history.unshift({
-        role: "user",
-        content: String(inputs.message),
-        name: session.user_name || "User",
-      });
-    }
-
-    return { run, saved_prompts: prompt_chain.saved_prompts };
-  }
-
-  async updateSavedPrompts(
-    session: StoreSession,
-    new_prompts: Record<string, string>,
-  ) {
-    this.saved_prompts[session.id] = new_prompts;
-    await this.store.updateSession(session.id, { saved_prompts: new_prompts });
-  }
-
-  setupHistory(session: StoreSession, inputs: Inputs, history: LLMHistory[]) {
-    let content: string;
-    if (typeof inputs.message === "string") {
-      content = inputs.message;
-    } else {
-      content = JSON.stringify(inputs);
-    }
-
-    history.push({
-      role: "user",
-      name: session.user_name || "User",
-      content,
-    });
-
-    return history;
-  }
-
-  getStreamFunc(): StreamFunc {
-    if (this.streamFunc) {
-      return this.streamFunc;
-    }
-    const listeners = this.stream_listeners;
-    return (message: StreamMessage) => {
-      listeners.map((listener) => {
-        listener(message);
-      });
     };
   }
 
-  private updateStatus(status: string): undefined {
-    this.status_listeners.map((listener) => {
-      listener(status);
+  private getToolCallStreamFunc(
+    run_listeners?: ((call: types.LLMToolCall) => any)[],
+  ): (call: types.LLMToolCall) => any {
+    const listeners = [...this.tool_calls_listeners, ...(run_listeners || [])];
+    return (call: types.LLMToolCall) => {
+      listeners.map((l) => l(call));
+    };
+  }
+
+  private getToolResStreamFunc(
+    run_listeners?: ((tool: { call: types.LLMToolCall; result: any }) => any)[],
+  ): (tool: { call: types.LLMToolCall; result: any }) => any {
+    const listeners = [
+      ...this.tool_results_listeners,
+      ...(run_listeners || []),
+    ];
+    return (tool: { call: types.LLMToolCall; result: any }) => {
+      listeners.map((l) => l(tool));
+    };
+  }
+
+  public onToolCall(call: types.LLMToolCall): undefined {
+    this.tool_calls_listeners.map((listener) => listener(call));
+  }
+
+  public onStream(func: types.StreamFunc): void {
+    this.stream_listeners.push(func);
+  }
+
+  public onToken(func: types.StreamFunc): void {
+    this.stream_listeners.push(func);
+  }
+
+  public async info<K extends keyof types.AgentData>(
+    key: K,
+  ): Promise<types.AgentData[K]> {
+    if (!this.agent) {
+      await this.loadAgent();
+    }
+    if (!this.agent) {
+      throw new Error("Agent not loaded");
+    }
+
+    return this.agent[key];
+  }
+
+  public addTool<Data = any>(
+    func: (args: Data) => any,
+    tool: types.ToolFunction,
+  ) {
+    this.tools.push({
+      type: "function",
+      executor: func,
+      tool: {
+        type: "function",
+        function: tool,
+      },
     });
+
+    return this;
   }
 
-  private toolCalled(data: ToolCalledMessage): undefined {
-    this.tool_calls_listeners.map((listener) => listener(data));
+  public async addAgentAsTool(agent: Agent) {
+    const agent_tool = await agent.asTool();
+    this.tools.push(agent_tool);
+
+    return this;
   }
 
-  public on({ type, func }: OnListener): undefined {
-    if (type === "stream") {
-      this.stream_listeners.push(func);
-      return;
+  private async selectTools(
+    run: Run,
+    history: types.LLMHistory[],
+    inputs: types.Inputs,
+  ) {
+    const tools: types.ToolSchema[] = [
+      ...this.tools,
+      ...(inputs.tools || []),
+      ...(this.agent?.tools || []),
+    ];
+
+    const max = Number(inputs.max_tools || 5);
+
+    if (tools.length <= max) {
+      return tools;
     }
 
-    if (type === "status") {
-      this.status_listeners.push(func);
-      return;
+    const prompt =
+      "Your role is to select at most 7 tools that might be helpful to achieve the user request from a list of available tools, never make up new tools, and don't include tools that are not relevant to the user request. output a JSON object with the names of the tools that might be useful based on the context of previous conversations and current user request";
+
+    const string_tools: string[] = tools.map(
+      (t) => `${t.tool.function.name}: ${t.tool.function.description}`,
+    );
+    const message =
+      (inputs.message || "") +
+      `\n\nAvailable tools:\n${string_tools.join(".\n")}`;
+
+    const schema = {
+      type: "object",
+      properties: {
+        tools: {
+          description:
+            "The selected tools names that are relevant to the context",
+          type: "array",
+          items: {
+            type: "string",
+          },
+        },
+      },
+      required: ["tools"],
+    } as const satisfies JSONSchema;
+
+    type Output = FromSchema<typeof schema>;
+
+    const output = await run.jsonRun<Output>({
+      inputs: { ...inputs, message },
+      system_prompt: prompt,
+      history,
+      schema: schema as any as types.ToolParameters,
+    });
+
+    const selected_names = output.tools.slice(0, 4);
+    const wanted = tools.filter(
+      (t) => selected_names.indexOf(t.tool.function.name) !== -1,
+    );
+
+    return wanted;
+  }
+
+  public async asTool(): Promise<types.AgentToolSchema> {
+    if (!this.agent) {
+      await this.loadAgent();
     }
 
-    this.tool_calls_listeners.push(func);
+    const agent = this.agent as types.AgentData;
+    const runFunc = this.run;
+
+    const executor: types.AgentToolSchema["executor"] = async (
+      session_id: string,
+      run_id: string,
+      instructions: string,
+    ) => {
+      const res = await runFunc({
+        inputs: {
+          session_id,
+          run_id,
+          message: instructions,
+          save_history: false,
+        },
+      });
+
+      return res.response.content;
+    };
+
+    const agent_tool: types.AgentToolSchema = {
+      type: "agent",
+      agent_id: this.id,
+      executor,
+      tool: {
+        type: "function",
+        function: {
+          name: agent.name,
+          description: `an AI agent called ${agent.name}. its task is: ${agent.description}`,
+          parameters: {
+            type: "object",
+            properties: {
+              instructions: {
+                type: "string",
+                description:
+                  "The instruction or task to give the agent. include all instructions to guide this agent",
+              },
+            },
+            required: ["instructions"],
+          },
+        },
+      },
+    };
+
+    return agent_tool;
   }
 }
 
