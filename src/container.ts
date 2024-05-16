@@ -171,7 +171,12 @@ class Container {
     payload: types.LoadAgentRequest["payload"],
   ) {
     const agent = await this.getAgent(payload.id).load();
-    await stream(this.streamMessage(agent.agent));
+    const message = this.streamMessage(agent.agent);
+    await stream(message);
+    // const chunks = this.chunkString(message, 50);
+    // for await (const m of chunks) {
+    //   await stream(m);
+    // }
   }
 
   private async loadBox(
@@ -179,7 +184,12 @@ class Container {
     payload: types.LoadBoxRequest["payload"],
   ) {
     const box = await this.getBox(payload.id).load();
-    await stream(this.streamMessage(box.box));
+    const message = this.streamMessage(box.box);
+    await stream(message);
+    // const chunks = this.chunkString(message, 50);
+    // for await (const m of chunks) {
+    //   await stream(m);
+    // }
   }
 
   private async newSession(

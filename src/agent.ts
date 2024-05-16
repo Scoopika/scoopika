@@ -36,10 +36,7 @@ class Agent {
   ) {
     this.client = client;
     this.id = id;
-
-    if (client.engines) {
-      this.llm_clients = buildClients(client.engines);
-    }
+    this.llm_clients = buildClients(client.engines);
 
     if (client.loaded_agents[id]) {
       this.agent = client.loaded_agents[id];

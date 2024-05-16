@@ -9,7 +9,7 @@ class Scoopika {
   private token: string;
   public store: InMemoryStore | RemoteStore;
   public memoryStore: InMemoryStore;
-  public engines: types.RawEngines | undefined = {};
+  public engines: types.RawEngines = {};
   public stateStore: StateStore;
 
   // Will be used soon for caching somehow
@@ -29,7 +29,7 @@ class Scoopika {
     this.stateStore = new StateStore();
     this.memoryStore = new InMemoryStore();
 
-    this.engines = engines;
+    this.engines = engines || {};
 
     if (!store) {
       store = new InMemoryStore();
