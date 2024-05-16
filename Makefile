@@ -1,11 +1,8 @@
-test:
-	npm run test
+t:
+	bun run test
 
-build:
-	npm run build
+b:
+	bun run build
 
-install:
-	npm install
-
-final:
-	npm run test && npm run prettier && npm run build
+f:
+	bun run test && bun run prettier && bun run build

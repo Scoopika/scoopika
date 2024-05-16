@@ -3,28 +3,43 @@ import {
   FunctionToolSchema,
   ApiToolSchema,
   ServerClientActionStream,
+  AgentToolSchema,
 } from "@scoopika/types";
 import validate, { validateObject } from "./lib/validate";
 
 class ToolRun {
   id: string;
   run_id: string;
+  session_id: string;
   tool: ToolSchema;
   args: Record<string, any>;
   clientSideHook?: (action: ServerClientActionStream["data"]) => any;
+  errorHook?: (e: { healed: boolean; error: string }) => any;
 
-  constructor(
-    id: string,
-    run_id: string,
-    tool: ToolSchema,
-    args: Record<string, any>,
-    clientSideHook?: (action: ServerClientActionStream["data"]) => any,
-  ) {
+  constructor({
+    id,
+    run_id,
+    session_id,
+    tool,
+    args,
+    clientSideHook,
+    errorHook,
+  }: {
+    id: string;
+    run_id: string;
+    session_id: string;
+    tool: ToolSchema;
+    args: Record<string, any>;
+    clientSideHook?: (action: ServerClientActionStream["data"]) => any;
+    errorHook?: (e: { healed: boolean; error: string }) => any;
+  }) {
     this.id = id;
     this.run_id = run_id;
+    this.session_id = session_id;
     this.tool = tool;
     this.args = args;
     this.clientSideHook = clientSideHook;
+    this.errorHook = errorHook;
   }
 
   // the tool result can be anything, that's why it's any
@@ -59,6 +74,10 @@ class ToolRun {
       return await this.executeApi(this.tool);
     }
 
+    if (this.tool.type === "agent") {
+      return await this.executeAgent(this.tool);
+    }
+
     if (this.tool.type !== "client-side") {
       throw new Error("ERROR: Unknown tool type");
     }
@@ -75,12 +94,33 @@ class ToolRun {
       arguments: validated_args.data,
     });
 
-    return "Performed Action!";
+    return `Executed the action ${this.tool.tool.function.name} successfully, keep the conversation going and inform the user that the action was executed`;
   }
 
-  async executeFunction(tool: FunctionToolSchema): Promise<{ result: string }> {
-    const result = await tool.executor(this.args);
-    return { result: this.toolResult(result) };
+  async executeAgent(tool: AgentToolSchema): Promise<string> {
+    if (typeof this.args.instructions !== "string") {
+      throw new Error(
+        "Invalid instructions sent to an agent running as a tool",
+      );
+    }
+
+    const result = await tool.executor(
+      this.session_id,
+      this.run_id,
+      this.args.instructions,
+    );
+
+    return result;
+  }
+
+  async executeFunction(tool: FunctionToolSchema): Promise<string> {
+    try {
+      const result = await tool.executor(this.args);
+      return this.toolResult({ result });
+    } catch (err: any) {
+      const error: string = err.message || "Unexpected error!";
+      return `The tool ${tool.tool.function.name} faced an error: ${error}`;
+    }
   }
 
   async executeApi(tool: ApiToolSchema): Promise<{ result: string }> {

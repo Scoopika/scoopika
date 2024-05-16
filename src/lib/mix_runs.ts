@@ -88,8 +88,10 @@ export default async function mixRuns(
       return text;
     });
 
+    const user_name = session.user_name ? ` (${session.user_name})` : "";
+
     const content = getUserContent(
-      `This is a previous conversation between the user and ${run.agent_name} (another AI assistant not you):\nThe user: ${latest_user_message}\n${calls.join("\n")}\n${run.agent_name}: ${run.response.content}`,
+      `This is a conversation between the user${user_name} and another AI assistant called ${run.agent_name}:\nThe user: ${latest_user_message}\n${calls.join("\n")}\n${run.agent_name} (AI assistant): ${run.response.content}`,
       latest_user_images,
     );
 

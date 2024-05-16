@@ -41,6 +41,10 @@ class Box {
       this.box = client.loaded_boxes[id];
     }
 
+    if (client.engines) {
+      this.llm_clients = buildClients(client.engines);
+    }
+
     if (!options) {
       return;
     }
@@ -51,8 +55,6 @@ class Box {
 
     if (engines) {
       this.llm_clients = buildClients(engines);
-    } else if (client.engines) {
-      this.llm_clients = buildClients(client.engines);
     }
 
     if (system_prompt) {
@@ -89,13 +91,11 @@ class Box {
     }
 
     const session_id: string =
-      typeof inputs.session_id === "string"
-        ? inputs.session_id
-        : "session_" + crypto.randomUUID();
+      inputs.session_id || "session_" + crypto.randomUUID();
+    const run_id = inputs.run_id || "run_" + crypto.randomUUID();
 
     const box = this.box as types.BoxData;
     const session = await this.client.getSession(session_id);
-    const run_id = "run_" + crypto.randomUUID();
     const run_listeners: ((s: types.StreamMessage) => any)[] = [];
 
     if (hooks && hooks.onStream) {
@@ -150,6 +150,7 @@ class Box {
             ...agentData.tools,
             ...this.tools,
             ...(this.agents_tools[agentData.name.toLowerCase()] || []),
+            ...(this.agents_tools[agentData.id] || []),
           ],
         },
       });
@@ -244,6 +245,7 @@ class Box {
 
     const run = await modelRunner.baseRun({
       run_id: "BOX",
+      session_id: "DUMMY_SESSION_" + crypto.randomUUID(),
       stream: () => {},
       onToolCall: () => {},
       onToolRes: () => {},
@@ -328,7 +330,7 @@ class Box {
           type: "function",
           function: {
             name: agent.name,
-            description: `${agent.name} is an agent. task: ${agent.description}`,
+            description: `${agent.name} is an AI agent. task: ${agent.description}`,
             parameters: {
               type: "object",
               properties: {
@@ -370,7 +372,10 @@ class Box {
     this.finish_listeners.push(func);
   }
 
-  addGlobalTool(func: (args: any) => any, tool: types.ToolFunction) {
+  addGlobalTool<Data = any>(
+    func: (args: Data) => any,
+    tool: types.ToolFunction,
+  ) {
     this.tools.push({
       type: "function",
       executor: func,
@@ -381,9 +386,9 @@ class Box {
     });
   }
 
-  addTool(
+  addTool<Data = any>(
     agent_name: string,
-    func: (args: any) => any,
+    func: (args: Data) => any,
     tool: types.ToolFunction,
   ) {
     if (!this.agents_tools[agent_name.toLowerCase()]) {
@@ -398,6 +403,12 @@ class Box {
         function: tool,
       },
     });
+  }
+
+  public async addAgentAsTool(agent: Agent) {
+    const agent_tool = await agent.asTool();
+    this.tools.push(agent_tool);
+    return this;
   }
 
   system_prompt = `You are a manager that chooses from a number of AI agents to execute a specific task. choose the most suitable agent for the task.`;

@@ -2,14 +2,13 @@ import buildPrompt from "./lib/build_prompt";
 import Model from "./model";
 import new_error from "./lib/error";
 import * as types from "@scoopika/types";
-import { validateObject } from "./lib/validate";
+import validate, { validateObject } from "./lib/validate";
 import cleanToolParams from "./lib/clean_tool_params";
-import resolveInputs from "./lib/resolve_inputs";
 
 class Run {
   private clients: types.LLMClient[];
   private prompt: types.Prompt;
-  private tools: types.ToolSchema[] = [];
+  public tools: types.ToolSchema[] = [];
   private agent: types.AgentData;
   private session: types.StoreSession;
   public built_prompt: string | undefined = undefined;
@@ -20,6 +19,9 @@ class Run {
     call: types.LLMToolCall;
     result: any;
   }) => any;
+  private clientActionStream:
+    | ((action: types.ServerClientActionStream["data"]) => any)
+    | undefined;
 
   constructor({
     clients,
@@ -28,6 +30,7 @@ class Run {
     stream,
     toolCallStream,
     toolResStream,
+    clientActionStream,
     session,
   }: {
     clients: types.LLMClient[];
@@ -37,6 +40,7 @@ class Run {
     toolCallStream: (call: types.LLMToolCall) => any;
     toolResStream: (tool: { call: types.LLMToolCall; result: any }) => any;
     session: types.StoreSession;
+    clientActionStream?: (a: types.ServerClientActionStream["data"]) => any;
   }) {
     this.clients = clients;
     this.agent = agent;
@@ -45,6 +49,7 @@ class Run {
     this.toolResStream = toolResStream;
     this.tools = tools || [];
     this.session = session;
+    this.clientActionStream = clientActionStream;
 
     const prompt = agent.prompts[0];
     if (!prompt) {
@@ -111,12 +116,14 @@ class Run {
 
     const llm_output = await model.baseRun({
       run_id,
+      session_id: inputs.session_id as string,
       stream: this.stream,
       onToolCall: this.toolCallStream,
       onToolRes: this.toolResStream,
       updateHistory,
       inputs: llm_inputs,
       execute_tools: true,
+      onClientAction: this.clientActionStream,
     });
 
     if (llm_output.type === "text") {
@@ -163,7 +170,8 @@ class Run {
       );
     }
 
-    const content = `You are ${this.agent.name}. ` + built_prompt.content;
+    const content =
+      `You are called ${this.agent.name}. ` + built_prompt.content;
     this.built_prompt = content;
     return content;
   }
@@ -187,12 +195,14 @@ class Run {
 
   async jsonRun<Data = Record<string, any>>({
     inputs,
+    system_prompt,
     history,
     schema,
     stream,
   }: {
     inputs?: types.Inputs;
     schema: types.ToolParameters;
+    system_prompt?: string;
     history: types.LLMHistory[];
     stream?: types.StreamFunc;
   }) {
@@ -204,7 +214,9 @@ class Run {
     const messages: types.LLMHistory[] = [
       {
         role: "system",
-        content: "Your role is to extract JSON data from the context.",
+        content:
+          system_prompt ||
+          "Your role is to extract JSON data from the context.",
       },
       ...history,
     ];
@@ -242,6 +254,7 @@ class Run {
       throw new Error("Invalid LLM structured output");
     }
 
+    validate(schema, validated.data);
     return validated.data as Data;
   }
 }

@@ -1,7 +1,7 @@
 import { ToolFunction, ToolParameters } from "@scoopika/types";
 import { JSONSchema } from "json-schema-to-ts";
 
-export function createToolFromSchema(tool: {
+export function createToolSchema(tool: {
   name: string;
   description: string;
   parameters: JSONSchema;

@@ -38,20 +38,24 @@ class Model {
 
   async baseRun({
     run_id,
+    session_id,
     stream,
     onToolCall,
     onToolRes,
     updateHistory,
     inputs,
     execute_tools,
+    onClientAction,
   }: {
     run_id: string;
+    session_id: string;
     stream: types.StreamFunc;
     onToolCall: (call: types.LLMToolCall) => any;
     onToolRes: (tool: { call: types.LLMToolCall; result: any }) => any;
     updateHistory: (history: types.LLMHistory) => undefined;
     inputs: types.LLMFunctionBaseInputs;
     execute_tools?: boolean;
+    onClientAction?: (action: types.ServerClientActionStream["data"]) => any;
   }): Promise<types.LLMTextResponse> {
     const messages = [
       ...inputs.messages,
@@ -113,29 +117,32 @@ class Model {
 
       onToolCall(tool_call);
       const wanted_tool_schema = wanted_tools_schema[0];
-      const tool_run = new ToolRun(
-        tool_call.id,
+      const tool_run = new ToolRun({
+        id: tool_call.id,
         run_id,
-        wanted_tool_schema,
-        JSON.parse(call_function.arguments),
-      );
+        session_id,
+        tool: wanted_tool_schema,
+        args: JSON.parse(call_function.arguments),
+        clientSideHook: onClientAction,
+      });
+
       const execution = await tool_run.execute();
 
       onToolRes({
         call: tool_call,
-        result: execution.result,
+        result: execution,
       });
 
       this.tools_history.push({
         call: tool_call,
-        result: execution.result,
+        result: execution,
       });
 
       calls_results.push({
         role: "tool",
         tool_call_id: call_id,
         name: call_function.name,
-        content: execution.result,
+        content: execution,
       });
     }
 
@@ -159,12 +166,14 @@ class Model {
     if (calls_results.length > 0) {
       return await this.baseRun({
         run_id,
+        session_id,
         stream,
         onToolCall,
         onToolRes,
         updateHistory,
         inputs,
         execute_tools,
+        onClientAction,
       });
     }
 

@@ -80,6 +80,11 @@ class Scoopika {
     return { id: session_id, user_name, user_id, saved_prompts: {} };
   }
 
+  public async deleteSession(id: string) {
+    await this.store.deleteSession(id);
+    return this;
+  }
+
   public async pushRuns(
     session: types.StoreSession | string,
     runs: types.RunHistory[],

@@ -11,6 +11,7 @@ const hooks_mappings: Record<keyof BoxHooks, ServerStream["type"]> = {
   onToolResult: "tool_result",
   onSelectAgent: "select_agent",
   onBoxFinish: "box_response",
+  onClientSideAction: "client_action",
 };
 
 function serverHooks(

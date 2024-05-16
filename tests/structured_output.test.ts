@@ -2,6 +2,7 @@ import { test, expect } from "vitest";
 import Agent from "../src/agent";
 import { AgentData } from "@scoopika/types";
 import Client from "../src/scoopika";
+import { FromSchema, JSONSchema } from "json-schema-to-ts";
 
 const dummy_agent: AgentData = {
   id: "agent",
@@ -58,45 +59,36 @@ const dummy_agent: AgentData = {
   chained: false,
 };
 
-test("Running agent with tools and history", async () => {
-  const client = new Client({
-    token: "hello",
-    store: "memory",
-    engines: {
-      fireworks: process.env["FIREWORKS_API"],
-    },
-  });
+const client = new Client({
+  token: "hello",
+  store: "memory",
+  engines: {
+    fireworks: process.env["FIREWORKS_API"],
+  },
+});
 
-  const agent = await new Agent("agent", client, {
-    agent: dummy_agent,
-  }).load();
+const agent = new Agent(dummy_agent.id, client, {
+  agent: dummy_agent,
+});
 
-  const run = await agent.run({
-    inputs: {
-      session_id: "session123",
-      topic: "playing guitar",
-      message:
-        "I want to learn how to play the chords of the latest song I searched for",
-    },
-  });
-
-  const run2 = await agent.run({
-    inputs: {
-      session_id: "session123",
-      message: "What was the name of the latest song I searched for again ?",
-      plug: {
-        rag: "New latest search result:\nEagles - Hotel California",
+test("Running agent with structured output", async () => {
+  const schema = {
+    type: "object",
+    properties: {
+      name: {
+        type: "string",
       },
     },
+    required: ["name"],
+  } as const satisfies JSONSchema;
+
+  const run = await agent.structuredOutput<FromSchema<typeof schema>>({
+    inputs: {
+      message: "My name is Kais",
+    },
+    schema,
   });
 
-  expect(typeof run.response.content).toBe("string");
-  expect(run.response.type).toBe("text");
-
-  expect(run.session_id).toBe("session123");
-  expect(run2.response.type).toBe("text");
-  expect(run2.session_id).toBe("session123");
-  expect(
-    String(run2.response.content).toLowerCase().includes("hotel california"),
-  ).toBe(true);
+  expect(typeof run.name).toBe("string");
+  expect(run.name.toLowerCase()).toBe("kais");
 });
