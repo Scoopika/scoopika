@@ -1,11 +1,11 @@
 {
   "name": "@scoopika/scoopika",
-  "version": "1.1.5",
+  "version": "1.1.6",
   "description": "Run AI agents and multi-agent boxes with persistent history and external tools in your application in seconds with real-time streaming hooks, data validation, and auto healing out-of-the-box",
   "main": "./index.js",
   "types": "./index.d.ts",
   "scripts": {
-    "build": "tsup --dts-resolve && cp ./package.json ./dist/",
+    "build": "tsup --dts-resolve && cp ./package.json ./dist/ && cp ./README.md ./dist/",
     "test": "tsc && rm -r ./dist && vitest --watch false --testTimeout 300000",
     "coverage": "vitest run --coverage --testTimeout 500000",
     "prettier": "bunx prettier --write ."
