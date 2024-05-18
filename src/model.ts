@@ -42,7 +42,6 @@ class Model {
     stream,
     onToolCall,
     onToolRes,
-    updateHistory,
     inputs,
     execute_tools,
     onClientAction,
@@ -52,7 +51,6 @@ class Model {
     stream: types.StreamFunc;
     onToolCall: (call: types.LLMToolCall) => any;
     onToolRes: (tool: { call: types.LLMToolCall; result: any }) => any;
-    updateHistory: (history: types.LLMHistory) => undefined;
     inputs: types.LLMFunctionBaseInputs;
     execute_tools?: boolean;
     onClientAction?: (action: types.ServerClientActionStream["data"]) => any;
@@ -154,7 +152,6 @@ class Model {
         content: call.content,
       };
       this.updated_history.push(tool_call);
-      updateHistory(tool_call);
     });
 
     // Only used with Google Gemini, and running Google LLMs is not recommended anyways
@@ -170,7 +167,6 @@ class Model {
         stream,
         onToolCall,
         onToolRes,
-        updateHistory,
         inputs,
         execute_tools,
         onClientAction,
@@ -189,7 +185,12 @@ class Model {
     schema: types.ToolParameters,
     stream: types.StreamFunc,
   ): Promise<types.LLMJsonResponse> {
-    const response = this.host.json(this.client.client, inputs, schema, stream);
+    const response = await this.host.json(
+      this.client.client,
+      inputs,
+      schema,
+      stream,
+    );
 
     return response;
   }

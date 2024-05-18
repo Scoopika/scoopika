@@ -4,12 +4,14 @@ import InMemoryStore from "./store";
 import * as types from "@scoopika/types";
 import crypto from "node:crypto";
 
+type InMemory = "memory";
+
 class Scoopika {
   private url: string = "https://scoopika-source.deno.dev"; // Main API Url to get source data
   private token: string;
   public store: InMemoryStore | RemoteStore;
   public memoryStore: InMemoryStore;
-  public engines: types.RawEngines | undefined = {};
+  public engines: types.RawEngines = {};
   public stateStore: StateStore;
 
   // Will be used soon for caching somehow
@@ -22,14 +24,14 @@ class Scoopika {
     engines,
   }: {
     token: string;
-    store?: "memory" | string | InMemoryStore | RemoteStore;
+    store?: InMemory | string | InMemoryStore | RemoteStore;
     engines?: types.RawEngines;
   }) {
     this.token = token;
     this.stateStore = new StateStore();
     this.memoryStore = new InMemoryStore();
 
-    this.engines = engines;
+    this.engines = engines || {};
 
     if (!store) {
       store = new InMemoryStore();
@@ -72,7 +74,7 @@ class Scoopika {
     user_name?: string;
     user_id?: string;
   }): Promise<types.StoreSession> {
-    const session_id = id || "session_" + crypto.randomUUID();
+    const session_id = id ?? "session_" + crypto.randomUUID();
 
     await this.store.newSession({ id: session_id, user_id, user_name });
     this.stateStore.setState(session_id, 0);
@@ -122,7 +124,7 @@ class Scoopika {
     });
 
     const status = res.status;
-    const data = (await res.json()) as any;
+    const data = await res.json();
 
     if (!data.success) {
       throw new Error(`Remote server error: ${data.error || "Unknown error"}`);
@@ -149,7 +151,7 @@ class Scoopika {
     });
 
     const status = res.status;
-    const data = (await res.json()) as any;
+    const data = await res.json();
 
     if (status !== 200) {
       throw new Error(data.error || `Server error, status: ${status}`);

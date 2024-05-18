@@ -1,4 +1,3 @@
-import StateStore from "./state";
 import buildClients from "./lib/build_clients";
 import resolveInputs from "./lib/resolve_inputs";
 import crypto from "node:crypto";
@@ -36,10 +35,7 @@ class Agent {
   ) {
     this.client = client;
     this.id = id;
-
-    if (client.engines) {
-      this.llm_clients = buildClients(client.engines);
-    }
+    this.llm_clients = buildClients(client.engines);
 
     if (client.loaded_agents[id]) {
       this.agent = client.loaded_agents[id];
@@ -120,17 +116,17 @@ class Agent {
       ]);
     }
 
-    if (hooks && hooks.onStart) {
+    if (hooks?.onStart) {
       hooks.onStart({ run_id, session_id });
     }
 
     const run_listeners: ((s: types.StreamMessage) => any)[] = [];
 
-    if (hooks && hooks.onStream) {
+    if (hooks?.onStream) {
       run_listeners.push(hooks.onStream);
     }
 
-    if (hooks && hooks.onToken) {
+    if (hooks?.onToken) {
       run_listeners.push(async (s: types.StreamMessage) => {
         if (hooks.onToken) {
           hooks.onToken(s.content);
