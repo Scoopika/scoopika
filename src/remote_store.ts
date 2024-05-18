@@ -1,4 +1,3 @@
-import new_error from "./lib/error";
 import { LLMHistory, RunHistory, Store, StoreSession } from "@scoopika/types";
 import crypto from "node:crypto";
 
@@ -68,7 +67,7 @@ class RemoteStore implements Store {
       `session/${id}`,
       "POST",
       {
-        id: id || "session_" + crypto.randomUUID(),
+        id: id ?? "session_" + crypto.randomUUID(),
         user_id,
         user_name,
       },

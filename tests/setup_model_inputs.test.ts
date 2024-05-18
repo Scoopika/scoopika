@@ -14,7 +14,6 @@ test("LLM inputs with no tools", () => {
 
   expect(inputs.model).toBe("test_model");
   expect(inputs.tools).toBe(undefined);
-  // expect(inputs.tool_choice).toBe(undefined);
   expect(inputs.messages.length).toBe(2);
 });
 
@@ -45,7 +44,6 @@ test("LLM inputs with tools", () => {
 
   expect(typeof inputs.tools).toBe("object");
   expect(inputs.tools?.length).toBe(1);
-  // expect(inputs.tool_choice).toBe("auto");
 });
 
 test("LLM inputs with schema", () => {

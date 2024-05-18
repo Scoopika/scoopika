@@ -68,8 +68,6 @@ class Run {
     inputs: types.Inputs;
     history: types.LLMHistory[];
   }) {
-    const updated_history: types.LLMHistory[] = [];
-    const calls: types.ToolHistory[] = [];
     const client: types.LLMClient = this.getClient();
     const messages: types.LLMHistory[] = [...history];
 
@@ -89,15 +87,6 @@ class Run {
         content: inputs.message,
       });
     }
-
-    const updateHistory = (new_history: types.LLMHistory): undefined => {
-      if (new_history.role === "tool") {
-        calls.push(new_history);
-        return;
-      }
-
-      updated_history.push({ ...new_history, name: this.agent.name });
-    };
 
     const model = new Model(client, this.tools);
 
@@ -120,15 +109,10 @@ class Run {
       stream: this.stream,
       onToolCall: this.toolCallStream,
       onToolRes: this.toolResStream,
-      updateHistory,
       inputs: llm_inputs,
       execute_tools: true,
       onClientAction: this.clientActionStream,
     });
-
-    if (llm_output.type === "text") {
-      updateHistory({ role: "assistant", content: llm_output.content });
-    }
 
     return {
       response: llm_output,

@@ -7,8 +7,6 @@ class StateStore {
   state: Record<string, 0 | 1> = {};
   queue: Record<string, string[]> = {};
 
-  constructor() {}
-
   async setState(id: string, state: 0 | 1) {
     this.state[id] = state;
   }

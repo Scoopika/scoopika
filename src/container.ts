@@ -78,7 +78,7 @@ class Container {
   }
 
   public async handleRequest(full_request: {
-    request: Record<string, any> | any;
+    request: Record<string, any>;
     stream: (s: string) => any;
     end?: () => any;
   }) {

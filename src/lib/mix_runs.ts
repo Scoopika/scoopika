@@ -21,7 +21,7 @@ function getUserContent(
   }
 
   return [
-    { type: "text", text: message || "" },
+    { type: "text", text: message ?? "" },
     ...(images?.map(
       (i): UserImageContent => ({
         type: "image_url",

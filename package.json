@@ -1,14 +1,14 @@
 {
   "name": "@scoopika/scoopika",
-  "version": "1.1.0",
+  "version": "1.1.4",
   "description": "Run AI agents and multi-agent boxes with persistent history and external tools in your application in seconds with real-time streaming hooks, data validation, and auto healing out-of-the-box",
-  "main": "dist/index.js",
-  "types": "dist/index.d.ts",
+  "main": "./index.js",
+  "types": "./index.d.ts",
   "scripts": {
-    "build": "npx tsup --dts-resolve",
-    "test": "tsc && rm -r ./dist && npx vitest --watch false --testTimeout 300000",
+    "build": "tsup --dts-resolve && cp ./package.json ./dist/",
+    "test": "tsc && rm -r ./dist && vitest --watch false --testTimeout 300000",
     "coverage": "vitest run --coverage --testTimeout 500000",
-    "prettier": "npx prettier --write ."
+    "prettier": "bunx prettier --write ."
   },
   "author": "Kais Radwan",
   "license": "OPEN SCOOP",

@@ -7,8 +7,6 @@ class InMemoryStore implements Store {
   public users_sessions: Record<string, string[]> = {};
   public runs: Record<string, RunHistory[]> = {};
 
-  constructor() {}
-
   async newSession({
     id,
     user_id,
@@ -18,7 +16,7 @@ class InMemoryStore implements Store {
     user_id?: string;
     user_name?: string;
   }) {
-    const session_id = id || "session_" + crypto.randomUUID();
+    const session_id = id ?? "session_" + crypto.randomUUID();
 
     this.sessions[session_id] = {
       id: session_id,

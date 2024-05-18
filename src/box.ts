@@ -98,11 +98,11 @@ class Box {
     const session = await this.client.getSession(session_id);
     const run_listeners: ((s: types.StreamMessage) => any)[] = [];
 
-    if (hooks && hooks.onStream) {
+    if (hooks?.onStream) {
       run_listeners.push(hooks.onStream);
     }
 
-    if (hooks && hooks.onToken) {
+    if (hooks?.onToken) {
       run_listeners.push((s: types.StreamMessage) => {
         if (hooks.onToken) {
           hooks.onToken(s.content);
@@ -134,6 +134,7 @@ class Box {
       )[0];
 
       if (!agentData) {
+        // TODO: Add logging to this
         continue;
       }
 
@@ -249,7 +250,6 @@ class Box {
       stream: () => {},
       onToolCall: () => {},
       onToolRes: () => {},
-      updateHistory: () => {},
       inputs: LLM_inputs,
       execute_tools: false,
     });
