@@ -173,10 +173,6 @@ class Container {
     const agent = await this.getAgent(payload.id).load();
     const message = this.streamMessage(agent.agent);
     await stream(message);
-    // const chunks = this.chunkString(message, 50);
-    // for await (const m of chunks) {
-    //   await stream(m);
-    // }
   }
 
   private async loadBox(
@@ -186,10 +182,6 @@ class Container {
     const box = await this.getBox(payload.id).load();
     const message = this.streamMessage(box.box);
     await stream(message);
-    // const chunks = this.chunkString(message, 50);
-    // for await (const m of chunks) {
-    //   await stream(m);
-    // }
   }
 
   private async newSession(

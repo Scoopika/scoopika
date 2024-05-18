@@ -60,7 +60,7 @@ const openai: types.LLMHost<OpenAI> = {
           continue;
         }
 
-        if (call.id && saved_call.id !== saved_call.id) {
+        if (call.id && saved_call.id !== call.id) {
           tool_calls[call.index].id = call.id;
         }
 

@@ -4,7 +4,7 @@ import InMemoryStore from "./store";
 import * as types from "@scoopika/types";
 import crypto from "node:crypto";
 
-type InMemory = "memory";
+type StoreStringArg = "memory" & string;
 
 class Scoopika {
   private url: string = "https://scoopika-source.deno.dev"; // Main API Url to get source data
@@ -24,7 +24,7 @@ class Scoopika {
     engines,
   }: {
     token: string;
-    store?: InMemory | string | InMemoryStore | RemoteStore;
+    store?: StoreStringArg | InMemoryStore | RemoteStore;
     engines?: types.RawEngines;
   }) {
     this.token = token;
