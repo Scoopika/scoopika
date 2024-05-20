@@ -3,6 +3,8 @@ import Agent from "./agent";
 import Box from "./box";
 import Scoopika from "./scoopika";
 import serverHooks from "./server_hooks";
+import setupAgents from "./setup_agents";
+import setupBoxes from "./setup_boxes";
 
 type Stream = (s: string) => any;
 
@@ -18,30 +20,30 @@ class Container {
   setupAgents?: (s: Scoopika) => Promise<Agent[]>;
   setupBoxes?: (s: Scoopika) => Promise<Box[]>;
   onRequest?: (req: types.ServerRequest) => any;
-  caching: boolean;
+  private caching: boolean;
   private latest_setup: number = 0;
   private agents: Agent[] = [];
   private boxes: Box[] = [];
-  caching_limit: number = 1000000;
+  private caching_limit: number = 1000000;
 
   constructor({
     scoopika,
-    setupAgents,
-    setupBoxes,
+    agents,
+    boxes,
     onRequest,
     caching,
     caching_limit,
   }: {
     scoopika: Scoopika;
-    setupAgents?: (s: Scoopika) => Promise<Agent[]>;
-    setupBoxes?: (s: Scoopika) => Promise<Box[]>;
+    agents?: ((s: Scoopika) => Promise<Agent[]>) | string[];
+    boxes?: ((s: Scoopika) => Promise<Box[]>) | string[];
     onRequest?: (req: types.ServerRequest) => any;
     caching?: boolean;
     caching_limit?: number;
   }) {
     this.scoopika = scoopika;
-    this.setupAgents = setupAgents;
-    this.setupBoxes = setupBoxes;
+    this.setupAgents = setupAgents(agents || []);
+    this.setupBoxes = setupBoxes(boxes || []);
     this.onRequest = onRequest;
 
     if (typeof caching_limit === "number") {
@@ -117,6 +119,7 @@ class Container {
   private async setup() {
     if (
       this.latest_setup !== 0 &&
+      this.caching &&
       Date.now() - this.latest_setup <= this.caching_limit
     ) {
       return;
