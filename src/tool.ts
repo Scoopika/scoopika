@@ -110,7 +110,7 @@ class ToolRun {
       this.args.instructions,
     );
 
-    return result;
+    return `${tool.tool.function.name} said: ` + result;
   }
 
   async executeFunction(tool: FunctionToolSchema): Promise<string> {

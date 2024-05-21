@@ -35,26 +35,26 @@ const agents: AgentData[] = [
       },
     ],
   },
-  // {
-  //   id: "agent2",
-  //   name: "Mark",
-  //   description: "Knows a lot of information about mobile and PC games",
-  //   chained: false,
-  //   tools: [],
-  //   prompts: [
-  //     {
-  //       id: "prompt1",
-  //       type: "text",
-  //       index: 0,
-  //       variable_name: "info",
-  //       llm_client: "fireworks",
-  //       model: "accounts/fireworks/models/firefunction-v1",
-  //       options: {},
-  //       inputs: [],
-  //       content: "You know a lot of information about mobile and PC games",
-  //     },
-  //   ],
-  // },
+  {
+    id: "agent2",
+    name: "Mark",
+    description: "Knows a lot of information about mobile and PC games",
+    chained: false,
+    tools: [],
+    prompts: [
+      {
+        id: "prompt1",
+        type: "text",
+        index: 0,
+        variable_name: "info",
+        llm_client: "fireworks",
+        model: "accounts/fireworks/models/firefunction-v1",
+        options: {},
+        inputs: [],
+        content: "You know a lot of information about mobile and PC games",
+      },
+    ],
+  },
 ];
 
 const box = new Box("box123", client, {

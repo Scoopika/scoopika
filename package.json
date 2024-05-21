@@ -1,6 +1,6 @@
 {
   "name": "@scoopika/scoopika",
-  "version": "1.1.7",
+  "version": "1.1.9",
   "description": "Run AI agents and multi-agent boxes with persistent history and external tools in your application in seconds with real-time streaming hooks, data validation, and auto healing out-of-the-box",
   "main": "./index.js",
   "types": "./index.d.ts",

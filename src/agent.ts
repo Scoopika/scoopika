@@ -399,7 +399,7 @@ class Agent {
     }
 
     const agent = this.agent as types.AgentData;
-    const runFunc = this.run;
+    const runFunc = this.run.bind(this);
 
     const executor: types.AgentToolSchema["executor"] = async (
       session_id: string,
