@@ -187,6 +187,16 @@ class Container {
     await stream(message);
   }
 
+  private async speakAgent(
+    stream: Stream,
+    payload: types.SpeakAgentRequest["payload"],
+  ) {
+    const agent = this.getAgent(payload.id);
+    const output = await agent.speak(payload.text, payload.language as any);
+    const message = this.streamMessage({ output });
+    await stream(message);
+  }
+
   private async newSession(
     stream: Stream,
     payload: types.NewSessionRequest["payload"],
@@ -241,6 +251,7 @@ class Container {
     delete_session: this.deleteSession.bind(this),
     list_user_sessions: this.listUserSessions.bind(this),
     get_session_runs: this.getSessionRuns.bind(this),
+    speak: this.speakAgent.bind(this),
   };
 }
 

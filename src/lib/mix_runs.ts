@@ -1,3 +1,4 @@
+import { Scoopika } from "..";
 import resolveInputs from "./resolve_inputs";
 import {
   LLMHistory,
@@ -32,6 +33,7 @@ function getUserContent(
 }
 
 export default async function mixRuns(
+  scoopika: Scoopika,
   agent_id: string,
   session: StoreSession,
   runs: RunHistory[],
@@ -44,7 +46,7 @@ export default async function mixRuns(
     const role = run.role;
 
     if (role === "user") {
-      const message = (await resolveInputs(run.request)).message;
+      const message = (await resolveInputs(scoopika, run.request)).message;
       latest_user_message = message;
       latest_user_images = run.request.plug?.images;
       continue;

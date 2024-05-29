@@ -10,6 +10,7 @@ import setupBoxes from "./setup_boxes";
 import Container from "./container";
 import { JSONSchema, FromSchema } from "json-schema-to-ts";
 import { createToolSchema } from "./create_tool";
+import readAudio from "./lib/read_audio";
 
 export {
   Scoopika,
@@ -25,4 +26,5 @@ export {
   JSONSchema,
   FromSchema,
   createToolSchema,
+  readAudio,
 };

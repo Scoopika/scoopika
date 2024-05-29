@@ -6,6 +6,7 @@ import Scoopika from "./scoopika";
 import Run from "./run";
 import mixRuns from "./lib/mix_runs";
 import { FromSchema, JSONSchema } from "json-schema-to-ts";
+import { Language } from "./lib/languages";
 
 class Agent {
   public llm_clients: types.LLMClient[] = [];
@@ -60,6 +61,34 @@ class Agent {
 
   private async loadAgent() {
     const agent = await this.client.loadAgent(this.id);
+    const prompt = agent.prompts[0];
+
+    if (!prompt) {
+      throw new Error("The agent does not have a prompt!");
+    }
+
+    const host = prompt.llm_client;
+
+    if (this.llm_clients.filter((l) => l.host === host).length < 1) {
+      const platform_keys = await this.client.loadKeys();
+      const platform_engines: Record<string, string> = {};
+      platform_keys.forEach((k) => {
+        platform_engines[k.name] = k.value;
+      });
+      const platform_clients = buildClients(platform_engines);
+      this.llm_clients = [...this.llm_clients, ...platform_clients];
+    }
+
+    if (this.llm_clients.filter((l) => l.host === host).length < 1) {
+      throw new Error(
+        `This agent uses ${host} and no key for it is found in your server or account`,
+      );
+    }
+
+    if (agent?.in_tools) {
+      await this.buildInTools(agent.in_tools);
+    }
+
     this.agent = agent;
   }
 
@@ -94,7 +123,7 @@ class Agent {
     const original_inputs: types.Inputs = JSON.parse(JSON.stringify(inputs));
 
     const new_inputs: types.Inputs = {
-      ...(await resolveInputs(inputs)),
+      ...(await resolveInputs(this.client, inputs)),
       session_id,
       run_id,
     };
@@ -135,6 +164,7 @@ class Agent {
     }
 
     const history: types.LLMHistory[] = await mixRuns(
+      this.client,
       agent.id,
       session,
       await this.client.getSessionRuns(session),
@@ -207,6 +237,19 @@ class Agent {
     return res;
   }
 
+  public async speak(text: string, language: Language = "en") {
+    if (!this.agent) await this.loadAgent();
+
+    const agent = this.agent as types.AgentData;
+    const speech = await this.client.speak({
+      text,
+      voice: agent.voice,
+      language,
+    });
+
+    return speech;
+  }
+
   public async structuredOutput<Data = Record<string, any>>({
     inputs,
     schema,
@@ -227,9 +270,10 @@ class Agent {
 
     const agent = this.agent as types.AgentData;
     const session = await this.client.getSession(session_id);
-    const new_inputs: types.Inputs = await resolveInputs(inputs);
+    const new_inputs: types.Inputs = await resolveInputs(this.client, inputs);
 
     const history: types.LLMHistory[] = await mixRuns(
+      this.client,
       "STRUCTURED",
       session,
       await this.client.getSessionRuns(session),
@@ -391,6 +435,38 @@ class Agent {
     );
 
     return wanted;
+  }
+
+  // setup tools added in the platform
+  private async buildInTools(in_tools: types.InTool[]) {
+    for (const tool of in_tools) {
+      if (tool.type === "agent") {
+        const agent = new Agent(tool.id, this.client);
+        await this.addAgentAsTool(agent);
+        continue;
+      }
+
+      const headers: Record<string, string> = {};
+      tool.headers.forEach((h) => {
+        headers[h.key] = h.value;
+      });
+
+      this.tools.push({
+        type: "api",
+        url: tool.url,
+        method: tool.method,
+        headers,
+        body: tool.body,
+        tool: {
+          type: "function",
+          function: {
+            name: tool.name,
+            description: tool.description,
+            parameters: tool.inputs,
+          },
+        },
+      });
+    }
   }
 
   public async asTool(): Promise<types.AgentToolSchema> {

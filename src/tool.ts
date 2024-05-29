@@ -123,18 +123,25 @@ class ToolRun {
     }
   }
 
+  private replaceVariables(template: string, variables: Record<string, any>) {
+    return template.replace(/\${(.*?)}/g, (_, v) => variables[v] || "");
+  }
+
   async executeApi(tool: ApiToolSchema): Promise<{ result: string }> {
     const inputs: {
-      method: typeof tool.method;
       headers: typeof tool.headers;
-      data?: Record<string, any>;
-    } = { method: tool.method, headers: tool.headers };
+      body?: string;
+    } = {
+      headers: tool.headers,
+    };
 
-    if (tool.method !== "get") {
-      inputs.data = this.args;
+    const has_body = typeof tool.body === "string" && tool.body.length > 0;
+
+    if (tool.method.toLowerCase() !== "get" && has_body) {
+      inputs.body = this.replaceVariables(tool.body || "", this.args);
     }
 
-    const response = await fetch(tool.url, {
+    const response = await fetch(this.replaceVariables(tool.url, this.args), {
       ...inputs,
       method: tool.method.toUpperCase(),
     });

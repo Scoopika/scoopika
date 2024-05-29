@@ -5,12 +5,16 @@ import * as types from "@scoopika/types";
 import crypto from "node:crypto";
 
 class Scoopika {
-  private url: string = "https://scoopika-source.deno.dev"; // Main API Url to get source data
+  // Main API Url to get source data
+  private url: string =
+    process.env.SCOOPIKA_SOURCE || "https://dev.scoopika.com";
   private token: string;
   public store: InMemoryStore | RemoteStore;
   public memoryStore: InMemoryStore;
   public engines: types.RawEngines = {};
   public stateStore: StateStore;
+  private default_voice: string =
+    "https://replicate.delivery/pbxt/Jt79w0xsT64R1JsiJ0LQRL8UcWspg5J4RFrU6YwEKpOT1ukS/male.wav";
 
   // Will be used soon for caching somehow
   public loaded_agents: Record<string, types.AgentData> = {};
@@ -21,11 +25,19 @@ class Scoopika {
     store,
     engines,
   }: {
-    token: string;
+    token?: string;
     store?: string | InMemoryStore | RemoteStore;
     engines?: types.RawEngines;
-  }) {
-    this.token = token;
+  } = {}) {
+    const access_token = token || process.env.SCOOPIKA_TOKEN;
+
+    if (!access_token || access_token.length < 1) {
+      throw new Error(
+        "Scoopika access token not found, pass it as a prop or add SCOOPIKA_TOKEN to your environment variables",
+      );
+    }
+
+    this.token = access_token;
     this.stateStore = new StateStore();
     this.memoryStore = new InMemoryStore();
 
@@ -38,7 +50,7 @@ class Scoopika {
     if (store === "memory") {
       store = new InMemoryStore();
     } else if (typeof store === "string") {
-      store = new RemoteStore(token, store);
+      store = new RemoteStore(access_token, `${this.url}/${store}`);
     }
 
     this.store = store;
@@ -161,6 +173,100 @@ class Scoopika {
 
     this.loaded_boxes[id] = data.box as types.BoxData;
     return data.box as types.BoxData;
+  }
+
+  public async loadKeys(): Promise<
+    {
+      name: string;
+      value: string;
+    }[]
+  > {
+    const res = await fetch(this.url + "/main/keys", {
+      method: "GET",
+      headers: {
+        authorization: this.token,
+      },
+    });
+
+    const data = (await res.json()) as
+      | {
+          success: false;
+          error: string;
+        }
+      | {
+          success: true;
+          keys: { name: string; value: string }[];
+        };
+
+    if (!data?.success) {
+      const err = data.error || "Remote server error";
+      throw new Error(`ERROR loading API keys (${res.status}): ${err}`);
+    }
+
+    return data.keys;
+  }
+
+  public async speak({
+    text,
+    language,
+    voice,
+  }: {
+    text: string;
+    language?: types.SpeakLanguages;
+    voice?: string;
+  }) {
+    language = language || "en";
+    voice = voice || this.default_voice;
+
+    const res = await fetch(this.url + "/pro/speak", {
+      method: "POST",
+      headers: {
+        authorization: this.token,
+      },
+      body: JSON.stringify({
+        text,
+        language,
+        speaker: voice,
+      }),
+    });
+
+    const data = (await res.json()) as
+      | { success: false }
+      | { success: true; output: string };
+
+    if (!data || !data.success) {
+      throw new Error(`Remote server error: ${res.status}`);
+    }
+
+    return data.output;
+  }
+
+  public async recognizeSpeech(binary: Buffer | ArrayBuffer) {
+    const binary_data = binary.toString("base64");
+    const res = await fetch(this.url + "/pro/recognize-speech", {
+      method: "POST",
+      headers: {
+        authorization: this.token,
+      },
+      body: JSON.stringify({ data: binary_data }),
+    });
+
+    const data:
+      | {
+          success: false;
+          error: string;
+        }
+      | {
+          success: true;
+          text: string;
+        } = await res.json();
+
+    if (!data || !data.success) {
+      const err = data.error || "Can't recognize speech";
+      throw new Error(`Remote sevrer error: ${err}`);
+    }
+
+    return data.text;
   }
 }
 

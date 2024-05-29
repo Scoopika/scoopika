@@ -1,6 +1,11 @@
 import { Inputs } from "@scoopika/types";
+import { Scoopika } from "..";
+import readAudio from "./read_audio";
 
-export default async function resolveInputs(inputs: Inputs) {
+export default async function resolveInputs(
+  scoopika: Scoopika,
+  inputs: Inputs,
+) {
   if (!inputs.plug) {
     return inputs;
   }
@@ -9,6 +14,7 @@ export default async function resolveInputs(inputs: Inputs) {
 
   const data = inputs.plug.data;
   const rag = inputs.plug.rag;
+  const audios = inputs.plug.audio;
 
   if (rag) {
     const rag_res =
@@ -21,7 +27,16 @@ export default async function resolveInputs(inputs: Inputs) {
   }
 
   if (inputs.message) {
-    message += "Current user request:\n" + inputs.message;
+    message += "\nCurrent user request:\n" + inputs.message;
+  }
+
+  if ((!inputs.message && audios?.length) || 0 > 0) {
+    message += "\nCurrent user request:\n";
+  }
+
+  for await (const a of audios || []) {
+    const text = await readAudio(scoopika, { ...inputs, message }, a);
+    message += `\n${text}`;
   }
 
   if (message.length < 1) {

@@ -4,6 +4,7 @@ import crypto from "node:crypto";
 import * as types from "@scoopika/types";
 import Model from "./model";
 import Agent from "./agent";
+import resolveInputs from "./lib/resolve_inputs";
 
 class Box {
   id: string;
@@ -193,19 +194,23 @@ class Box {
     inputs: types.Inputs,
     history: types.LLMHistory[],
   ): Promise<{ name: string; instructions: string }[]> {
-    if (!inputs.message) {
+    const new_inputs = await resolveInputs(this.client, inputs);
+
+    if (!new_inputs.message) {
       throw new Error("Inputs message is required in AI Boxes");
     }
 
-    if (this.mentions && inputs.message.startsWith("@")) {
+    if (this.mentions && new_inputs.message.startsWith("@")) {
       const wanted_agents = this.box?.agents.filter(
         (agent) =>
           agent.name.toLowerCase() ===
-          inputs.message?.split(" ")[0].replace("@", "").toLowerCase(),
+          new_inputs.message?.split(" ")[0].replace("@", "").toLowerCase(),
       );
 
       if (wanted_agents && wanted_agents?.length > 0) {
-        return [{ name: wanted_agents[0].name, instructions: inputs.message }];
+        return [
+          { name: wanted_agents[0].name, instructions: new_inputs.message },
+        ];
       }
     }
 
@@ -224,10 +229,10 @@ class Box {
       });
     }
 
-    if (inputs.message) {
+    if (new_inputs.message) {
       messages.push({
         role: "user",
-        content: `Instructions:\n${inputs.message}`,
+        content: `Instructions:\n${new_inputs.message}`,
       });
     }
 
@@ -262,7 +267,7 @@ class Box {
       return [
         {
           name: run.tool_calls[0].function.name,
-          instructions: inputs.message,
+          instructions: new_inputs.message,
         },
       ];
     }
@@ -273,7 +278,7 @@ class Box {
       const args = JSON.parse(call.function.arguments);
 
       if (!args.instructions || typeof args.instructions !== "boolean") {
-        args.instructions = inputs.message;
+        args.instructions = new_inputs.message;
       }
 
       selected_agents.push({

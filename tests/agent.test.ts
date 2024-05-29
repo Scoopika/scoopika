@@ -63,7 +63,7 @@ test("Running agent with tools and history", async () => {
     token: "hello",
     store: "memory",
     engines: {
-      fireworks: process.env["FIREWORKS_API"],
+      fireworks: process.env["FIREWORKS_TOKEN"],
     },
   });
 

@@ -63,7 +63,7 @@ const client = new Client({
   token: "hello",
   store: "memory",
   engines: {
-    fireworks: process.env["FIREWORKS_API"],
+    fireworks: process.env["FIREWORKS_TOKEN"],
   },
 });
 
