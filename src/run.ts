@@ -4,6 +4,7 @@ import new_error from "./lib/error";
 import * as types from "@scoopika/types";
 import validate, { validateObject } from "./lib/validate";
 import cleanToolParams from "./lib/clean_tool_params";
+import buildMessage from "./lib/build_message";
 
 class Run {
   private clients: types.LLMClient[];
@@ -80,11 +81,12 @@ class Run {
       content: prompt_content,
     });
 
-    if (inputs.message) {
+    const built_message = buildMessage(inputs);
+    if (built_message.length > 0) {
       messages.push({
         role: "user",
         name: this.session.user_name,
-        content: inputs.message,
+        content: built_message,
       });
     }
 
@@ -205,10 +207,11 @@ class Run {
       ...history,
     ];
 
-    if (inputs?.message) {
+    const built_message = buildMessage(inputs || {});
+    if (built_message.length > 0) {
       messages.push({
         role: "user",
-        content: inputs.message,
+        content: built_message,
       });
     }
 
