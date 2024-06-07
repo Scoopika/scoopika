@@ -1,29 +1,18 @@
-import { Inputs } from "@scoopika/types";
+import { Inputs, RunInputs } from "@scoopika/types";
 import { Scoopika } from "..";
 import readAudio from "./read_audio";
 
 export default async function resolveInputs(
   scoopika: Scoopika,
-  inputs: Inputs,
+  inputs: RunInputs,
 ) {
-  if (!inputs.plug) {
-    return inputs;
-  }
-
   let message = "";
 
-  const data = inputs.plug.data;
-  const rag = inputs.plug.rag;
-  const audios = inputs.plug.audio;
-
-  if (rag) {
-    const rag_res =
-      typeof rag === "string" ? rag : await rag(inputs.message || "");
-    message += "More information that might be helpful:\n" + rag_res;
-  }
+  const data = inputs.context || [];
+  const audios = inputs.audio;
 
   for (const item of data || []) {
-    message += item.description + ":\n" + item.data;
+    message += item.description + ":\n" + item.value;
   }
 
   if (inputs.message) {

@@ -5,24 +5,20 @@ import * as types from "@scoopika/types";
 import Model from "./model";
 import Agent from "./agent";
 import resolveInputs from "./lib/resolve_inputs";
+import Hooks from "./hooks";
 
 class Box {
   id: string;
   client: Scoopika;
   box: types.BoxData | undefined = undefined;
   llm_clients: types.LLMClient[] = [];
+  hooks: Hooks;
 
   tools: types.ToolSchema[] = [];
   agents_tools: Record<string, types.ToolSchema[]> = {};
 
   mentions: boolean = true;
   running_agent: string = "NONE";
-
-  stream_listeners: types.BoxStreamFunc[] = [];
-  agent_selection_listeners: ((agent: types.AgentData) => any)[] = [];
-  finish_listeners: ((
-    response: { name: string; run: types.AgentResponse }[],
-  ) => any)[] = [];
 
   constructor(
     id: string,
@@ -37,6 +33,7 @@ class Box {
   ) {
     this.id = id;
     this.client = client;
+    this.hooks = new Hooks();
 
     if (client.loaded_boxes[id]) {
       this.box = client.loaded_boxes[id];
@@ -82,41 +79,33 @@ class Box {
 
   async run({
     inputs,
+    options,
     hooks,
   }: {
-    inputs: types.Inputs;
+    inputs: types.RunInputs;
+    options?: types.RunOptions;
     hooks?: types.BoxHooks;
   }): Promise<{ name: string; run: types.AgentResponse }[]> {
     if (!this.box) {
       await this.load();
     }
 
+    options = options || {};
+    const hooksStore = new Hooks(this.hooks.hooks);
+    hooksStore.addRunHooks(hooks || {});
+
     const session_id: string =
-      inputs.session_id || "session_" + crypto.randomUUID();
-    const run_id = inputs.run_id || "run_" + crypto.randomUUID();
+      options?.session_id || "session_" + crypto.randomUUID();
+    const run_id = options?.run_id || "run_" + crypto.randomUUID();
 
     const box = this.box as types.BoxData;
     const session = await this.client.getSession(session_id);
-    const run_listeners: ((s: types.StreamMessage) => any)[] = [];
 
-    if (hooks?.onStream) {
-      run_listeners.push(hooks.onStream);
+    if (typeof options?.run_id !== "string") {
+      options.run_id = run_id;
     }
 
-    if (hooks?.onToken) {
-      run_listeners.push((s: types.StreamMessage) => {
-        if (hooks.onToken) {
-          hooks.onToken(s.content);
-        }
-      });
-    }
-
-    const streamFunc = this.getStreamFunc(run_listeners);
-
-    if (typeof inputs.run_id !== "string") {
-      inputs.run_id = run_id;
-    }
-
+    hooksStore.executeHook("onStart", { run_id, session_id });
     const history = this.setupHistory(
       session,
       inputs,
@@ -135,16 +124,11 @@ class Box {
       )[0];
 
       if (!agentData) {
-        // TODO: Add logging to this
+        console.error(`Agent ${selected.name} could not be loaded.. skipping!`);
         continue;
       }
 
-      this.agent_selection_listeners.forEach((listener) => listener(agentData));
-
-      if (hooks?.onSelectAgent) {
-        hooks.onSelectAgent(agentData);
-      }
-
+      hooksStore.executeHook("onSelectAgent", agentData);
       const agent = new Agent(agentData.id, this.client, {
         agent: {
           ...agentData,
@@ -157,16 +141,6 @@ class Box {
         },
       });
 
-      agent.onStream((stream: types.StreamMessage) => {
-        if (stream.type !== "text") return;
-        streamFunc({
-          run_id: stream.run_id,
-          type: stream.type,
-          agent_name: this.running_agent,
-          content: stream.content,
-        });
-      });
-
       this.running_agent = agentData.name;
       const run = await agent.run({
         inputs: {
@@ -175,23 +149,15 @@ class Box {
         },
       });
       responses.push({ name: agentData.name, run });
-
-      if (hooks?.onAgentResponse) {
-        hooks.onAgentResponse({ name: agentData.name, response: run });
-      }
     }
 
-    this.finish_listeners.forEach((listener) => listener(responses));
-
-    if (hooks?.onBoxFinish) {
-      hooks.onBoxFinish(responses);
-    }
+    hooksStore.executeHook("onBoxFinish", responses);
 
     return responses;
   }
 
   async selectAgents(
-    inputs: types.Inputs,
+    inputs: types.RunInputs,
     history: types.LLMHistory[],
   ): Promise<{ name: string; instructions: string }[]> {
     const new_inputs = await resolveInputs(this.client, inputs);
@@ -252,11 +218,9 @@ class Box {
     const run = await modelRunner.baseRun({
       run_id: "BOX",
       session_id: "DUMMY_SESSION_" + crypto.randomUUID(),
-      stream: () => {},
-      onToolCall: () => {},
-      onToolRes: () => {},
       inputs: LLM_inputs,
       execute_tools: false,
+      hooks: new Hooks(),
     });
 
     if (!run.tool_calls || run.tool_calls.length < 1) {
@@ -305,7 +269,7 @@ class Box {
 
   setupHistory(
     session: types.StoreSession,
-    inputs: types.Inputs,
+    inputs: types.RunInputs,
     history: types.LLMHistory[],
   ): types.LLMHistory[] {
     const newHistory: types.LLMHistory[] = JSON.parse(JSON.stringify(history));
@@ -352,29 +316,6 @@ class Box {
     }
 
     return tools;
-  }
-
-  getStreamFunc(run_listeners?: types.BoxStreamFunc[]): types.BoxStreamFunc {
-    const listeners = [...this.stream_listeners, ...(run_listeners || [])];
-
-    return (message: types.BoxStream) => {
-      listeners.map((listener) => listener(message));
-    };
-  }
-
-  onStream(func: types.BoxStreamFunc) {
-    this.stream_listeners.push(func);
-    return this;
-  }
-
-  onSelectAgent(func: (agent: types.AgentData) => any) {
-    this.agent_selection_listeners.push(func);
-  }
-
-  onFinish(
-    func: (response: { name: string; run: types.AgentResponse }[]) => any,
-  ) {
-    this.finish_listeners.push(func);
   }
 
   addGlobalTool<Data = any>(

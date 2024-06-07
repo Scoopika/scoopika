@@ -15,7 +15,7 @@ type Mappings = {
   ) => any;
 };
 
-class Container {
+class Endpoint {
   private scoopika: Scoopika;
   setupAgents?: (s: Scoopika) => Promise<Agent[]>;
   setupBoxes?: (s: Scoopika) => Promise<Box[]>;
@@ -25,6 +25,8 @@ class Container {
   private agents: Agent[] = [];
   private boxes: Box[] = [];
   private caching_limit: number = 1000000;
+  private cache_audio: boolean = true;
+  private cached_audio_calls: Record<string, Buffer> = {};
 
   constructor({
     scoopika,
@@ -33,6 +35,7 @@ class Container {
     onRequest,
     caching,
     caching_limit,
+    cache_audio,
   }: {
     scoopika: Scoopika;
     agents?: ((s: Scoopika) => Promise<Agent[]>) | string[];
@@ -40,11 +43,16 @@ class Container {
     onRequest?: (req: types.ServerRequest) => any;
     caching?: boolean;
     caching_limit?: number;
+    cache_audio?: boolean;
   }) {
     this.scoopika = scoopika;
     this.setupAgents = setupAgents(agents || []);
     this.setupBoxes = setupBoxes(boxes || []);
     this.onRequest = onRequest;
+
+    if (typeof cache_audio === "boolean") {
+      this.cache_audio = cache_audio;
+    }
 
     if (typeof caching_limit === "number") {
       this.caching_limit = caching_limit;
@@ -187,14 +195,18 @@ class Container {
     await stream(message);
   }
 
-  private async speakAgent(
+  private async readAudio(
     stream: Stream,
-    payload: types.SpeakAgentRequest["payload"],
+    payload: types.ReadAudioRequest["payload"],
   ) {
-    const agent = this.getAgent(payload.id);
-    const output = await agent.speak(payload.text, payload.language as any);
-    const message = this.streamMessage({ output });
-    await stream(message);
+    const id = typeof payload === "string" ? payload : payload.audio_id;
+    const cached = this.cached_audio_calls[id];
+
+    const audio = cached || (await this.scoopika.readAudio(payload));
+    const base64 = audio.toString("base64");
+
+    if (this.cache_audio) this.cached_audio_calls[id] = audio;
+    await stream(this.streamMessage({ data: base64 }));
   }
 
   private async newSession(
@@ -233,6 +245,19 @@ class Container {
     await stream(this.streamMessage({ runs }));
   }
 
+  private async getRun(
+    stream: Stream,
+    payload: types.GetRunRequest["payload"],
+  ) {
+    const run = await this.scoopika.getRun(
+      payload.session,
+      payload.run_id,
+      payload.role,
+    );
+
+    await stream(this.streamMessage({ run }));
+  }
+
   private streamMessage(data: any) {
     if (typeof data === "object") {
       data = JSON.stringify({ ...data });
@@ -251,8 +276,9 @@ class Container {
     delete_session: this.deleteSession.bind(this),
     list_user_sessions: this.listUserSessions.bind(this),
     get_session_runs: this.getSessionRuns.bind(this),
-    speak: this.speakAgent.bind(this),
+    get_run: this.getRun.bind(this),
+    read_audio: this.readAudio.bind(this),
   };
 }
 
-export default Container;
+export default Endpoint;

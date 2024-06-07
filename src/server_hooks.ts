@@ -3,8 +3,10 @@ import { BoxHooks, ServerStream } from "@scoopika/types";
 const hooks_mappings: Record<keyof BoxHooks, ServerStream["type"]> = {
   onStart: "start",
   onToken: "token",
+  onAudio: "audio",
   onError: "error",
   onStream: "stream",
+  onOutput: "stream",
   onFinish: "response",
   onAgentResponse: "agent_response",
   onToolCall: "tool_call",

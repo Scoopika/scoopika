@@ -5,6 +5,7 @@ import * as types from "@scoopika/types";
 import validate, { validateObject } from "./lib/validate";
 import cleanToolParams from "./lib/clean_tool_params";
 import buildMessage from "./lib/build_message";
+import Hooks from "./hooks";
 
 class Run {
   private clients: types.LLMClient[];
@@ -13,44 +14,26 @@ class Run {
   private agent: types.AgentData;
   private session: types.StoreSession;
   public built_prompt: string | undefined = undefined;
-
-  private stream: types.StreamFunc;
-  private toolCallStream: (call: types.LLMToolCall) => any;
-  private toolResStream: (tool: {
-    call: types.LLMToolCall;
-    result: any;
-  }) => any;
-  private clientActionStream:
-    | ((action: types.ServerClientActionStream["data"]) => any)
-    | undefined;
+  public hooks: Hooks;
 
   constructor({
     clients,
     agent,
     tools,
-    stream,
-    toolCallStream,
-    toolResStream,
-    clientActionStream,
     session,
+    hooks,
   }: {
     clients: types.LLMClient[];
     agent: types.AgentData;
     tools?: types.ToolSchema[];
-    stream: types.StreamFunc;
-    toolCallStream: (call: types.LLMToolCall) => any;
-    toolResStream: (tool: { call: types.LLMToolCall; result: any }) => any;
     session: types.StoreSession;
-    clientActionStream?: (a: types.ServerClientActionStream["data"]) => any;
+    hooks: Hooks;
   }) {
     this.clients = clients;
     this.agent = agent;
-    this.stream = stream;
-    this.toolCallStream = toolCallStream;
-    this.toolResStream = toolResStream;
     this.tools = tools || [];
     this.session = session;
-    this.clientActionStream = clientActionStream;
+    this.hooks = hooks;
 
     const prompt = agent.prompts[0];
     if (!prompt) {
@@ -63,10 +46,12 @@ class Run {
   async run({
     run_id,
     inputs,
+    options,
     history,
   }: {
     run_id: string;
-    inputs: types.Inputs;
+    inputs: types.RunInputs;
+    options: types.RunOptions;
     history: types.LLMHistory[];
   }) {
     const client: types.LLMClient = this.getClient();
@@ -107,13 +92,10 @@ class Run {
 
     const llm_output = await model.baseRun({
       run_id,
-      session_id: inputs.session_id as string,
-      stream: this.stream,
-      onToolCall: this.toolCallStream,
-      onToolRes: this.toolResStream,
+      session_id: options.session_id as string,
       inputs: llm_inputs,
       execute_tools: true,
-      onClientAction: this.clientActionStream,
+      hooks: this.hooks,
     });
 
     return {
@@ -122,44 +104,45 @@ class Run {
     };
   }
 
-  validatePrompt(user_inputs: types.Inputs) {
-    const prompt_inputs: Record<string, types.Parameter> = {};
-
-    for (const i of this.prompt.inputs) {
-      prompt_inputs[i.id] = {
-        type: i.type,
-        description: i.description,
-        enum: i.enum,
-        default: i.default,
-        required: i.required,
-      };
-    }
-
-    const validation = validateObject(prompt_inputs, [], user_inputs);
-
-    if (!validation.success) {
-      throw new Error(validation.error);
-    }
-
-    const built_prompt = buildPrompt(this.prompt, validation.data);
-
-    if (built_prompt.missing.length > 0) {
-      const missing = built_prompt.missing.map(
-        (m) => `${m.id}: ${m.description}`,
-      );
-      throw new Error(
-        new_error(
-          "missing prompt variables",
-          `Missing data: ${missing}`,
-          "prompt validation",
-        ),
-      );
-    }
-
-    const content =
-      `You are called ${this.agent.name}. ` + built_prompt.content;
-    this.built_prompt = content;
-    return content;
+  validatePrompt(user_inputs: types.RunInputs) {
+    return `You are called ${this.agent.name} ` + this.prompt.content;
+    // const prompt_inputs: Record<string, types.Parameter> = {};
+    //
+    // for (const i of this.prompt.inputs) {
+    //   prompt_inputs[i.id] = {
+    //     type: i.type,
+    //     description: i.description,
+    //     enum: i.enum,
+    //     default: i.default,
+    //     required: i.required,
+    //   };
+    // }
+    //
+    // const validation = validateObject(prompt_inputs, [], user_inputs);
+    //
+    // if (!validation.success) {
+    //   throw new Error(validation.error);
+    // }
+    //
+    // const built_prompt = buildPrompt(this.prompt, validation.data);
+    //
+    // if (built_prompt.missing.length > 0) {
+    //   const missing = built_prompt.missing.map(
+    //     (m) => `${m.id}: ${m.description}`,
+    //   );
+    //   throw new Error(
+    //     new_error(
+    //       "missing prompt variables",
+    //       `Missing data: ${missing}`,
+    //       "prompt validation",
+    //     ),
+    //   );
+    // }
+    //
+    // const content =
+    //   `You are called ${this.agent.name}. ` + built_prompt.content;
+    // this.built_prompt = content;
+    // return content;
   }
 
   getClient(): types.LLMClient {
@@ -184,18 +167,12 @@ class Run {
     system_prompt,
     history,
     schema,
-    stream,
   }: {
-    inputs?: types.Inputs;
+    inputs?: types.RunInputs;
     schema: types.ToolParameters;
     system_prompt?: string;
     history: types.LLMHistory[];
-    stream?: types.StreamFunc;
   }) {
-    if (!stream) {
-      stream = () => {};
-    }
-
     const client = this.getClient();
     const messages: types.LLMHistory[] = [
       {
@@ -228,7 +205,6 @@ class Run {
         },
       },
       cleanToolParams(schema),
-      stream,
     );
 
     const validated = validateObject(

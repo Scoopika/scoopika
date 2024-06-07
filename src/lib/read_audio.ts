@@ -1,6 +1,5 @@
 import { Scoopika } from "..";
 import { AudioPlug, Inputs } from "@scoopika/types";
-import { readFileSync } from "node:fs";
 
 async function readAudio(
   scoopika: Scoopika,
@@ -13,23 +12,25 @@ async function readAudio(
     return await audio.func(request);
   }
 
-  let binary: Buffer | ArrayBuffer;
+  let buffer: Buffer | ArrayBuffer;
 
-  if (type === "local") {
-    binary = readFileSync(audio.path);
+  if (type === "base64") {
+    buffer = Buffer.from(
+      Uint8Array.from(atob(audio.value), (c) => c.charCodeAt(0)),
+    );
   } else {
     const res = await fetch(audio.path);
     if (!res.ok) {
       throw new Error(`Failed to read remote audio file: ${res.status}`);
     }
-    binary = await res.arrayBuffer();
+    buffer = await res.arrayBuffer();
   }
 
-  if (binary instanceof ArrayBuffer) {
-    binary = Buffer.from(binary);
+  if (buffer instanceof ArrayBuffer) {
+    buffer = Buffer.from(buffer);
   }
 
-  const text = await scoopika.recognizeSpeech(binary);
+  const text = await scoopika.recognizeSpeech(buffer);
   return text;
 }
 

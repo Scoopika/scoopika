@@ -13,8 +13,7 @@ class Scoopika {
   public memoryStore: InMemoryStore;
   public engines: types.RawEngines = {};
   public stateStore: StateStore;
-  private default_voice: string =
-    "https://replicate.delivery/pbxt/Jt79w0xsT64R1JsiJ0LQRL8UcWspg5J4RFrU6YwEKpOT1ukS/male.wav";
+  private default_voice: string = "m-us-1";
 
   // Will be used soon for caching somehow
   public loaded_agents: Record<string, types.AgentData> = {};
@@ -50,10 +49,14 @@ class Scoopika {
     if (store === "memory") {
       store = new InMemoryStore();
     } else if (typeof store === "string") {
-      store = new RemoteStore(access_token, `${this.url}/${store}`);
+      store = new RemoteStore(access_token, `${this.url}/store/${store}`);
     }
 
     this.store = store;
+  }
+
+  getUrl() {
+    return this.url;
   }
 
   // Sessions
@@ -121,6 +124,16 @@ class Scoopika {
   ): Promise<types.LLMHistory[]> {
     const history = await this.store.getHistory(session);
     return history;
+  }
+
+  public async getRun(
+    session: types.StoreSession | string,
+    id: string,
+    role: "user" | "agent" = "agent",
+  ): Promise<types.RunHistory | undefined> {
+    const runs = await this.store.getRuns(session);
+    const run = runs.filter((run) => run.run_id === id && run.role === role)[0];
+    return run;
   }
 
   // Loading
@@ -206,16 +219,20 @@ class Scoopika {
     return data.keys;
   }
 
-  public async speak({
-    text,
-    language,
-    voice,
-  }: {
-    text: string;
-    language?: types.SpeakLanguages;
-    voice?: string;
-  }) {
-    language = language || "en";
+  public async readAudio(audio: string | types.AudioRes) {
+    const audio_id = typeof audio === "string" ? audio : audio.audio_id;
+
+    const res = await fetch(this.url + `/pro/audio/${audio_id}`, {
+      headers: {
+        authorization: this.token,
+      },
+    });
+
+    const binary = await res.arrayBuffer();
+    return Buffer.from(binary);
+  }
+
+  public async speak({ text, voice }: { text: string; voice?: string }) {
     voice = voice || this.default_voice;
 
     const res = await fetch(this.url + "/pro/speak", {
@@ -225,20 +242,26 @@ class Scoopika {
       },
       body: JSON.stringify({
         text,
-        language,
         speaker: voice,
       }),
     });
 
-    const data = (await res.json()) as
-      | { success: false }
-      | { success: true; output: string };
+    const data = await res.json();
 
     if (!data || !data.success) {
-      throw new Error(`Remote server error: ${res.status}`);
+      const err = data.error || "Remote server error: Can't generate audio";
+      throw new Error(err);
     }
 
-    return data.output;
+    const id = data.output;
+
+    if (typeof id !== "string") {
+      throw new Error(
+        "Can't generate audio. contact support at team@scoopika.com",
+      );
+    }
+
+    return id;
   }
 
   public async recognizeSpeech(binary: Buffer | ArrayBuffer) {
@@ -268,6 +291,25 @@ class Scoopika {
 
     return data.text;
   }
+
+  // TODO: MOVE TO CLIENT SIDE
+  // public async readRunAudio(
+  //   run: types.AgentRunHistory | types.AudioRes[]
+  // ) {
+  //   const audio = Array.isArray(run) ? run : run.response.audio;
+  //
+  //   if (!audio || audio.length < 1) {
+  //     throw new Error("The run has no audio to read");
+  //   }
+  //
+  //   const crunker = new Crunker();
+  //   const buffers = await crunker.fetchAudio(
+  //     ...audio.map(a => a.read)
+  //   );
+  //
+  //   const one_buffer = crunker.concatAudio(buffers);
+  //   return one_buffer;
+  // }
 }
 
 export default Scoopika;

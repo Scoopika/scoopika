@@ -2,10 +2,10 @@ import {
   ToolSchema,
   FunctionToolSchema,
   ApiToolSchema,
-  ServerClientActionStream,
   AgentToolSchema,
 } from "@scoopika/types";
 import validate, { validateObject } from "./lib/validate";
+import Hooks from "./hooks";
 
 class ToolRun {
   id: string;
@@ -13,8 +13,7 @@ class ToolRun {
   session_id: string;
   tool: ToolSchema;
   args: Record<string, any>;
-  clientSideHook?: (action: ServerClientActionStream["data"]) => any;
-  errorHook?: (e: { healed: boolean; error: string }) => any;
+  hooks: Hooks;
 
   constructor({
     id,
@@ -22,24 +21,21 @@ class ToolRun {
     session_id,
     tool,
     args,
-    clientSideHook,
-    errorHook,
+    hooks,
   }: {
     id: string;
     run_id: string;
     session_id: string;
     tool: ToolSchema;
     args: Record<string, any>;
-    clientSideHook?: (action: ServerClientActionStream["data"]) => any;
-    errorHook?: (e: { healed: boolean; error: string }) => any;
+    hooks: Hooks;
   }) {
     this.id = id;
     this.run_id = run_id;
     this.session_id = session_id;
     this.tool = tool;
     this.args = args;
-    this.clientSideHook = clientSideHook;
-    this.errorHook = errorHook;
+    this.hooks = hooks;
   }
 
   // the tool result can be anything, that's why it's any
@@ -82,13 +78,13 @@ class ToolRun {
       throw new Error("ERROR: Unknown tool type");
     }
 
-    if (!this.clientSideHook) {
+    if (this.hooks.hooks.onClientSideAction?.length || 0 < 1) {
       throw new Error(
         "Needed to execute a tool on the client side but no hooks are found",
       );
     }
 
-    await this.clientSideHook({
+    await this.hooks.executeHook("onClientSideAction", {
       id: this.id,
       tool_name: this.tool.tool.function.name,
       arguments: validated_args.data,
@@ -104,13 +100,18 @@ class ToolRun {
       );
     }
 
-    const result = await tool.executor(
-      this.session_id,
-      this.run_id,
-      this.args.instructions,
-    );
+    try {
+      const result = await tool.executor(
+        this.session_id,
+        this.run_id,
+        this.args.instructions,
+      );
 
-    return `${tool.tool.function.name} said: ` + result;
+      return result;
+    } catch (err) {
+      console.error(err);
+      return `Could no communicate with agent!`;
+    }
   }
 
   async executeFunction(tool: FunctionToolSchema): Promise<string> {
@@ -118,6 +119,7 @@ class ToolRun {
       const result = await tool.executor(this.args);
       return this.toolResult({ result });
     } catch (err: any) {
+      console.error(err);
       const error: string = err.message || "Unexpected error!";
       return `The tool ${tool.tool.function.name} faced an error: ${error}`;
     }
@@ -127,7 +129,7 @@ class ToolRun {
     return template.replace(/\${(.*?)}/g, (_, v) => variables[v] || "");
   }
 
-  async executeApi(tool: ApiToolSchema): Promise<{ result: string }> {
+  async executeApi(tool: ApiToolSchema) {
     const inputs: {
       headers: typeof tool.headers;
       body?: string;
@@ -141,17 +143,22 @@ class ToolRun {
       inputs.body = this.replaceVariables(tool.body || "", this.args);
     }
 
-    const response = await fetch(this.replaceVariables(tool.url, this.args), {
-      ...inputs,
-      method: tool.method.toUpperCase(),
-    });
-
     try {
-      const data = await response.json();
-      return { result: this.toolResult(data) };
-    } catch {
-      const data = await response.text();
-      return { result: this.toolResult(data) };
+      const response = await fetch(this.replaceVariables(tool.url, this.args), {
+        ...inputs,
+        method: tool.method.toUpperCase(),
+      });
+
+      try {
+        const data = await response.json();
+        return { result: this.toolResult(data) };
+      } catch {
+        const data = await response.text();
+        return { result: this.toolResult(data) };
+      }
+    } catch (err: any) {
+      console.error(err);
+      return `System faced an error executing the tool: ${err.message || "Unexpected error!"}`;
     }
   }
 }

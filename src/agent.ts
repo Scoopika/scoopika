@@ -6,7 +6,8 @@ import Scoopika from "./scoopika";
 import Run from "./run";
 import mixRuns from "./lib/mix_runs";
 import { FromSchema, JSONSchema } from "json-schema-to-ts";
-import { Language } from "./lib/languages";
+import Hooks from "./hooks";
+import AudioStore from "./audio_store";
 
 class Agent {
   public llm_clients: types.LLMClient[] = [];
@@ -14,16 +15,7 @@ class Agent {
   public id: string;
   private client: Scoopika;
   public tools: types.ToolSchema[] = [];
-
-  streamFunc: types.StreamFunc | undefined;
-  stream_listeners: types.StreamFunc[] = [];
-  status_listeners: types.StatusUpdateFunc[] = [];
-  tool_calls_listeners: ((call: types.LLMToolCall) => any)[] = [];
-  tool_results_listeners: ((tool: {
-    call: types.LLMToolCall;
-    result: any;
-  }) => any)[] = [];
-  finish_listeners: ((response: types.AgentResponse) => any)[] = [];
+  public hooks: Hooks;
 
   constructor(
     id: string,
@@ -31,12 +23,16 @@ class Agent {
     options?: {
       agent?: types.AgentData;
       engines?: types.RawEngines;
-      streamFunc?: types.StreamFunc;
+      dangerouslyAllowBrowser?: boolean;
     },
   ) {
     this.client = client;
     this.id = id;
-    this.llm_clients = buildClients(client.engines);
+    this.hooks = new Hooks();
+    this.llm_clients = buildClients(
+      client.engines,
+      options?.dangerouslyAllowBrowser,
+    );
 
     if (client.loaded_agents[id]) {
       this.agent = client.loaded_agents[id];
@@ -46,7 +42,7 @@ class Agent {
       return;
     }
 
-    const { agent, engines, streamFunc } = options;
+    const { agent, engines } = options;
 
     if (agent) {
       this.agent = agent;
@@ -55,12 +51,10 @@ class Agent {
     if (engines) {
       this.llm_clients = buildClients(engines);
     }
-
-    this.streamFunc = streamFunc;
   }
 
   private async loadAgent() {
-    const agent = await this.client.loadAgent(this.id);
+    const agent = this.agent || (await this.client.loadAgent(this.id));
     const prompt = agent.prompts[0];
 
     if (!prompt) {
@@ -93,10 +87,6 @@ class Agent {
   }
 
   public async load(): Promise<Agent> {
-    if (this.agent) {
-      return this;
-    }
-
     await this.loadAgent();
 
     if (!this.agent) {
@@ -108,31 +98,47 @@ class Agent {
 
   public async run({
     inputs,
+    options,
     hooks,
+    hooksStore,
   }: {
-    inputs: types.Inputs;
+    inputs: types.RunInputs;
+    options?: types.RunOptions;
     hooks?: types.Hooks;
+    hooksStore?: Hooks;
   }): Promise<types.AgentResponse> {
-    if (!this.agent) {
-      await this.loadAgent();
-    }
+    await this.loadAgent();
 
+    const agent = this.agent as types.AgentData;
     const session_id: string =
-      inputs.session_id || "session_" + crypto.randomUUID();
-    const run_id = inputs.run_id || "run_" + crypto.randomUUID();
+      options?.session_id || "session_" + crypto.randomUUID();
+    const run_id = options?.run_id || "run_" + crypto.randomUUID();
     const original_inputs: types.Inputs = JSON.parse(JSON.stringify(inputs));
 
-    const new_inputs: types.Inputs = {
-      ...(await resolveInputs(this.client, inputs)),
-      session_id,
+    if (!hooksStore) {
+      hooksStore = new Hooks();
+    }
+
+    hooksStore.addRunHooks(hooks || {});
+    const audioStore = new AudioStore({
+      scoopika: this.client,
+      hooks: hooksStore,
       run_id,
+      voice: agent.voice,
+    });
+
+    if (options?.speak === true) {
+      audioStore.turnOn();
+    }
+
+    const new_inputs: types.RunInputs = {
+      ...(await resolveInputs(this.client, inputs)),
     };
 
     const start = Date.now();
-    const agent = this.agent as types.AgentData;
     const session = await this.client.getSession(session_id);
 
-    if (inputs.save_history !== false) {
+    if (options?.save_history !== false) {
       this.client.pushRuns(session, [
         {
           at: start,
@@ -145,24 +151,7 @@ class Agent {
       ]);
     }
 
-    if (hooks?.onStart) {
-      hooks.onStart({ run_id, session_id });
-    }
-
-    const run_listeners: ((s: types.StreamMessage) => any)[] = [];
-
-    if (hooks?.onStream) {
-      run_listeners.push(hooks.onStream);
-    }
-
-    if (hooks?.onToken) {
-      run_listeners.push(async (s: types.StreamMessage) => {
-        if (hooks.onToken) {
-          hooks.onToken(s.content);
-        }
-      });
-    }
-
+    hooksStore.executeHook("onStart", { run_id, session_id });
     const history: types.LLMHistory[] = await mixRuns(
       this.client,
       agent.id,
@@ -175,20 +164,23 @@ class Agent {
       clients: this.llm_clients,
       agent,
       tools: [],
-      stream: this.getStreamFunc(run_listeners),
-      toolCallStream: this.getToolCallStreamFunc(
-        hooks?.onToolCall && [hooks.onToolCall],
-      ),
-      toolResStream: this.getToolResStreamFunc(
-        hooks?.onToolResult && [hooks.onToolResult],
-      ),
-      clientActionStream: hooks?.onClientSideAction,
+      hooks: hooksStore,
     });
 
-    const wanted_tools = await this.selectTools(modelRun, history, new_inputs);
+    const wanted_tools = await this.selectTools(
+      modelRun,
+      history,
+      new_inputs,
+      options,
+    );
     modelRun.tools = wanted_tools;
 
-    const run = await modelRun.run({ run_id, inputs: new_inputs, history });
+    const run = await modelRun.run({
+      run_id,
+      inputs: new_inputs,
+      options: { session_id, run_id },
+      history,
+    });
 
     if (modelRun.built_prompt) {
       await this.client.store.updateSession(session_id, {
@@ -200,13 +192,20 @@ class Agent {
       });
     }
 
+    const audioDone = await audioStore.isDone();
+    if (!audioDone) {
+      console.error("ERROR: Not all audio chunks generated successfully!");
+    }
+
     const res: types.AgentResponse = {
       run_id,
       session_id,
-      response: run.response,
+      content: run.response.content,
+      audio: audioStore.chunks,
+      tools_calls: run.tools_history,
     };
 
-    if (inputs.save_history !== false) {
+    if (options?.save_history !== false) {
       await this.client.pushRuns(session, [
         {
           at: Date.now(),
@@ -215,62 +214,45 @@ class Agent {
           session_id,
           agent_id: agent.id,
           agent_name: agent.name,
-          response: run.response,
+          response: res,
           tools: run.tools_history,
         },
       ]);
     }
 
-    this.finish_listeners.forEach((listener) => listener(res));
-
-    if (hooks?.onFinish) {
-      hooks.onFinish(res);
-    }
-
-    if (hooks?.onAgentResponse) {
-      hooks.onAgentResponse({
-        name: agent.name,
-        response: res,
-      });
-    }
+    hooksStore.executeHook("onFinish", res);
+    hooksStore.executeHook("onAgentResponse", {
+      name: agent.name,
+      response: res,
+    });
 
     return res;
   }
 
-  public async speak(text: string, language: Language = "en") {
-    if (!this.agent) await this.loadAgent();
-
-    const agent = this.agent as types.AgentData;
-    const speech = await this.client.speak({
-      text,
-      voice: agent.voice,
-      language,
-    });
-
-    return speech;
-  }
-
   public async structuredOutput<Data = Record<string, any>>({
     inputs,
+    options,
     schema,
     system_prompt,
   }: {
-    inputs: types.Inputs;
+    inputs: types.RunInputs;
+    options: types.RunOptions;
     schema: types.ToolParameters | JSONSchema;
     system_prompt?: string;
   }): Promise<Data> {
-    if (!this.agent) {
-      await this.loadAgent();
-    }
+    await this.loadAgent();
 
     const session_id: string =
-      typeof inputs.session_id === "string"
-        ? inputs.session_id
+      typeof options?.session_id === "string"
+        ? options?.session_id
         : "session_" + crypto.randomUUID();
 
     const agent = this.agent as types.AgentData;
     const session = await this.client.getSession(session_id);
-    const new_inputs: types.Inputs = await resolveInputs(this.client, inputs);
+    const new_inputs: types.RunInputs = await resolveInputs(
+      this.client,
+      inputs,
+    );
 
     const history: types.LLMHistory[] = await mixRuns(
       this.client,
@@ -283,11 +265,10 @@ class Agent {
       session,
       clients: this.llm_clients,
       agent,
-      tools: [...this.tools, ...(agent.tools || []), ...(inputs.tools || [])],
-      stream: () => {},
-      toolCallStream: () => {},
-      toolResStream: () => {},
+      tools: [...this.tools, ...(agent.tools || []), ...(options?.tools || [])],
+      hooks: new Hooks(),
     });
+
     const output = await modelRun.jsonRun<Data>({
       inputs: new_inputs,
       schema: schema as types.ToolParameters,
@@ -296,50 +277,6 @@ class Agent {
     });
 
     return output;
-  }
-
-  private getStreamFunc(
-    run_listeners?: ((stream: types.StreamMessage) => void)[],
-  ): types.StreamFunc {
-    const listeners = [...this.stream_listeners, ...(run_listeners || [])];
-    return (message: types.StreamMessage) => {
-      for (const l of listeners) {
-        l(message);
-      }
-    };
-  }
-
-  private getToolCallStreamFunc(
-    run_listeners?: ((call: types.LLMToolCall) => any)[],
-  ): (call: types.LLMToolCall) => any {
-    const listeners = [...this.tool_calls_listeners, ...(run_listeners || [])];
-    return (call: types.LLMToolCall) => {
-      listeners.map((l) => l(call));
-    };
-  }
-
-  private getToolResStreamFunc(
-    run_listeners?: ((tool: { call: types.LLMToolCall; result: any }) => any)[],
-  ): (tool: { call: types.LLMToolCall; result: any }) => any {
-    const listeners = [
-      ...this.tool_results_listeners,
-      ...(run_listeners || []),
-    ];
-    return (tool: { call: types.LLMToolCall; result: any }) => {
-      listeners.map((l) => l(tool));
-    };
-  }
-
-  public onToolCall(call: types.LLMToolCall): undefined {
-    this.tool_calls_listeners.map((listener) => listener(call));
-  }
-
-  public onStream(func: types.StreamFunc): void {
-    this.stream_listeners.push(func);
-  }
-
-  public onToken(func: types.StreamFunc): void {
-    this.stream_listeners.push(func);
   }
 
   public async info<K extends keyof types.AgentData>(
@@ -381,15 +318,16 @@ class Agent {
   private async selectTools(
     run: Run,
     history: types.LLMHistory[],
-    inputs: types.Inputs,
+    inputs: types.RunInputs,
+    options?: types.RunOptions,
   ) {
     const tools: types.ToolSchema[] = [
       ...this.tools,
-      ...(inputs.tools || []),
+      ...(options?.tools || []),
       ...(this.agent?.tools || []),
     ];
 
-    const max = Number(inputs.max_tools || 5);
+    const max = Number(options?.max_tools || 5);
 
     if (tools.length <= max) {
       return tools;
@@ -483,15 +421,13 @@ class Agent {
       instructions: string,
     ) => {
       const res = await runFunc({
+        options: { session_id, run_id, save_history: false },
         inputs: {
-          session_id,
-          run_id,
           message: instructions,
-          save_history: false,
         },
       });
 
-      return res.response.content;
+      return res.content;
     };
 
     const agent_tool: types.AgentToolSchema = {

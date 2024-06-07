@@ -27,5 +27,5 @@ test("Run agent from the platform", async () => {
     },
   });
 
-  expect(typeof response.response.content).toBe("string");
+  expect(typeof response.content).toBe("string");
 });

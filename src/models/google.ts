@@ -8,12 +8,17 @@ const google: types.LLMHost<GoogleGenerativeAI> = {
   model_role: "model",
   system_role: "user",
 
-  text: async (
-    run_id: string,
-    client: GoogleGenerativeAI,
-    stream: types.StreamFunc,
-    inputs: types.LLMFunctionBaseInputs,
-  ): Promise<types.LLMTextResponse> => {
+  text: async ({
+    run_id,
+    client,
+    hooks,
+    inputs,
+  }: {
+    run_id: string;
+    client: GoogleGenerativeAI;
+    hooks: types.HooksClass;
+    inputs: types.LLMFunctionBaseInputs;
+  }): Promise<types.LLMTextResponse> => {
     const model_inputs: {
       model: string;
       systemInstruction?: Record<string, any>;
@@ -79,7 +84,14 @@ const google: types.LLMHost<GoogleGenerativeAI> = {
       const text = chunk.text();
       if (text) {
         response_message += text;
-        stream({ type: "text", content: text, run_id });
+        const stream: types.StreamMessage = {
+          run_id,
+          type: "text",
+          content: text,
+        };
+        await hooks.executeHook("onStream", stream);
+        await hooks.executeHook("onOutput", stream);
+        await hooks.executeHook("onToken", text);
       }
 
       const calls = chunk.functionCalls();
@@ -166,16 +178,6 @@ const google: types.LLMHost<GoogleGenerativeAI> = {
       type: "object",
       content: data,
     };
-  },
-
-  image: async (...args: any) => {
-    throw new Error(
-      new_error(
-        "image_generation_not_available",
-        "image generation using google clients is not available",
-        "image generation",
-      ),
-    );
   },
 
   helpers: {
