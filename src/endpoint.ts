@@ -26,7 +26,7 @@ class Endpoint {
   private boxes: Box[] = [];
   private caching_limit: number = 1000000;
   private cache_audio: boolean = true;
-  private cached_audio_calls: Record<string, Buffer> = {};
+  private cached_audio_calls: Record<string, string> = {};
 
   constructor({
     scoopika,
@@ -161,6 +161,7 @@ class Endpoint {
 
     await agent.run({
       inputs: payload.inputs,
+      options: payload.options,
       hooks: serverHooks(payload.hooks, stream),
     });
   }
@@ -173,6 +174,7 @@ class Endpoint {
 
     await box.run({
       inputs: payload.inputs,
+      options: payload.options,
       hooks: serverHooks(payload.hooks, stream),
     });
   }
@@ -199,14 +201,7 @@ class Endpoint {
     stream: Stream,
     payload: types.ReadAudioRequest["payload"],
   ) {
-    const id = typeof payload === "string" ? payload : payload.audio_id;
-    const cached = this.cached_audio_calls[id];
-
-    const audio = cached || (await this.scoopika.readAudio(payload));
-    const base64 = audio.toString("base64");
-
-    if (this.cache_audio) this.cached_audio_calls[id] = audio;
-    await stream(this.streamMessage({ data: base64 }));
+    // REMOVE THIS LATER ;)
   }
 
   private async newSession(

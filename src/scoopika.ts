@@ -4,6 +4,8 @@ import InMemoryStore from "./store";
 import * as types from "@scoopika/types";
 import crypto from "node:crypto";
 
+const VOICES = ["aura-orpheus-en", "aura-luna-en"];
+
 class Scoopika {
   // Main API Url to get source data
   private url: string =
@@ -13,7 +15,7 @@ class Scoopika {
   public memoryStore: InMemoryStore;
   public engines: types.RawEngines = {};
   public stateStore: StateStore;
-  private default_voice: string = "m-us-1";
+  private default_voice: string = VOICES[1];
 
   // Will be used soon for caching somehow
   public loaded_agents: Record<string, types.AgentData> = {};
@@ -129,10 +131,12 @@ class Scoopika {
   public async getRun(
     session: types.StoreSession | string,
     id: string,
-    role: "user" | "agent" = "agent",
-  ): Promise<types.RunHistory | undefined> {
+    role?: "user" | "agent",
+  ): Promise<types.RunHistory[]> {
     const runs = await this.store.getRuns(session);
-    const run = runs.filter((run) => run.run_id === id && run.role === role)[0];
+    const run = runs.filter(
+      (run) => (run.run_id === id && run.role === role) || run.role,
+    );
     return run;
   }
 
@@ -220,30 +224,27 @@ class Scoopika {
   }
 
   public async readAudio(audio: string | types.AudioRes) {
-    const audio_id = typeof audio === "string" ? audio : audio.audio_id;
+    const audio_url = typeof audio === "string" ? audio : audio.read;
 
-    const res = await fetch(this.url + `/pro/audio/${audio_id}`, {
-      headers: {
-        authorization: this.token,
-      },
-    });
-
-    const binary = await res.arrayBuffer();
-    return Buffer.from(binary);
+    const res = await fetch(audio_url);
+    const buffer = await res.arrayBuffer();
+    return Buffer.from(buffer);
   }
 
   public async speak({ text, voice }: { text: string; voice?: string }) {
     voice = voice || this.default_voice;
 
-    const res = await fetch(this.url + "/pro/speak", {
+    if (VOICES.indexOf(voice) === -1) {
+      console.warn("Invalid voice. falling to default voice");
+      voice = this.default_voice;
+    }
+
+    const res = await fetch(this.url + "/main/speak", {
       method: "POST",
       headers: {
         authorization: this.token,
       },
-      body: JSON.stringify({
-        text,
-        speaker: voice,
-      }),
+      body: JSON.stringify({ text, voice }),
     });
 
     const data = await res.json();
@@ -253,20 +254,12 @@ class Scoopika {
       throw new Error(err);
     }
 
-    const id = data.output;
-
-    if (typeof id !== "string") {
-      throw new Error(
-        "Can't generate audio. contact support at team@scoopika.com",
-      );
-    }
-
-    return id;
+    return data as { url: string; usage: number; id: string };
   }
 
-  public async recognizeSpeech(binary: Buffer | ArrayBuffer) {
+  public async listen(binary: Buffer | ArrayBuffer) {
     const binary_data = binary.toString("base64");
-    const res = await fetch(this.url + "/pro/recognize-speech", {
+    const res = await fetch(this.url + "/main/listen", {
       method: "POST",
       headers: {
         authorization: this.token,
@@ -292,24 +285,16 @@ class Scoopika {
     return data.text;
   }
 
-  // TODO: MOVE TO CLIENT SIDE
-  // public async readRunAudio(
-  //   run: types.AgentRunHistory | types.AudioRes[]
-  // ) {
-  //   const audio = Array.isArray(run) ? run : run.response.audio;
-  //
-  //   if (!audio || audio.length < 1) {
-  //     throw new Error("The run has no audio to read");
-  //   }
-  //
-  //   const crunker = new Crunker();
-  //   const buffers = await crunker.fetchAudio(
-  //     ...audio.map(a => a.read)
-  //   );
-  //
-  //   const one_buffer = crunker.concatAudio(buffers);
-  //   return one_buffer;
-  // }
+  async rag(id: string, text: string) {
+    const res = await fetch(`${this.url}/pro/query-knowledge/${id}`, {
+      method: "POST",
+      headers: { authorization: this.token },
+      body: JSON.stringify({ text }),
+    });
+
+    const data = await res.json();
+    return (data?.data || "") as string;
+  }
 }
 
 export default Scoopika;

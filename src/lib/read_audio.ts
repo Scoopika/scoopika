@@ -30,7 +30,7 @@ async function readAudio(
     buffer = Buffer.from(buffer);
   }
 
-  const text = await scoopika.recognizeSpeech(buffer);
+  const text = await scoopika.listen(buffer);
   return text;
 }
 

@@ -46,7 +46,8 @@ export default async function mixRuns(
     const role = run.role;
 
     if (role === "user") {
-      const message = (await resolveInputs(scoopika, run.request)).message;
+      const message = (await resolveInputs(scoopika, run.request, true))
+        .message;
       latest_user_message = message;
       latest_user_images = run.request.plug?.images;
       continue;

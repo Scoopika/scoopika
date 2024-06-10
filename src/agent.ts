@@ -127,7 +127,7 @@ class Agent {
       voice: agent.voice,
     });
 
-    if (options?.speak === true) {
+    if (options?.voice === true) {
       audioStore.turnOn();
     }
 

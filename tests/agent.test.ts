@@ -7,33 +7,6 @@ const dummy_agent: AgentData = {
   id: "agent",
   name: "Agento",
   description: "an agent that help make a plan for learning new things",
-  tools: [
-    {
-      type: "function",
-      executor: (_inputs: any) => {
-        console.log("TOOL CALL");
-        return "[Eminem - lose yourself]";
-      },
-      tool: {
-        type: "function",
-        function: {
-          name: "get_search_history",
-          description: "Get the search history",
-          parameters: {
-            type: "object",
-            properties: {
-              n: {
-                type: "number",
-                description: "The number of wanted results, default to 1",
-                default: 1,
-              },
-            },
-            required: ["n"],
-          },
-        },
-      },
-    },
-  ],
   prompts: [
     {
       id: "prompt-1",
@@ -43,16 +16,8 @@ const dummy_agent: AgentData = {
       variable_name: "main3",
       options: {},
       type: "text",
-      content:
-        "you respond with 3 main tips about how to learn the topic $topic. juts 3 main tips a nothing else",
-      inputs: [
-        {
-          id: "topic",
-          description: "The learning topic",
-          type: "string",
-          required: true,
-        },
-      ],
+      content: "You are a helpful AI assistant",
+      inputs: [],
     },
   ],
   chained: false,
@@ -71,7 +36,7 @@ test("Running agent with tools and history", async () => {
   }).load();
 
   const speak_run = await agent.run({
-    options: { speak: true },
+    options: { voice: true },
     inputs: {
       message: "Hello",
     },

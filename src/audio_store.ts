@@ -2,22 +2,23 @@ import { AudioRes } from "@scoopika/types";
 import Hooks from "./hooks";
 import Scoopika from "./scoopika";
 import sleep from "./lib/sleep";
+import crypto from "node:crypto";
 
-const PUNCTUATION = [".", "?", "!", ":", ";"];
+const PUNCTUATION = [". ", "?", "!", ":", ";"];
 
 class AudioStore {
-  private scoopika: Scoopika;
+  public scoopika: Scoopika;
   public chunks: AudioRes[] = [];
-  private done_indexes: number[] = [];
-  private hooks: Hooks;
-  private run_id: string;
-  private voice?: string;
-  private index: number = 0;
-  private calls: number = 0;
-  private failed: number = 0;
-  private sentence: string = "";
-  private later: string = "";
-  private listeners: Record<number, () => any> = [];
+  public done_indexes: number[] = [];
+  public hooks: Hooks;
+  public run_id: string;
+  public voice?: string;
+  public index: number = 0;
+  public calls: number = 0;
+  public failed: number = 0;
+  public sentence: string = "";
+  public later: string = "";
+  public listeners: Record<number, () => any> = [];
 
   constructor({
     scoopika,
@@ -36,14 +37,11 @@ class AudioStore {
     this.hooks = hooks;
   }
 
-  turnOn() {
-    this.hooks.addHook("onToken", this.handleToken.bind(this));
-  }
-
   addChunk(chunk: AudioRes) {
     this.chunks.push(chunk);
-    this.hooks.executeHook("onAudio", chunk);
     this.done_indexes.push(chunk.index);
+    this.hooks.executeHook("onAudio", chunk);
+    console.log("Push audio", chunk.index);
     const listener = this.listeners[chunk.index];
     if (listener) listener();
   }
@@ -53,10 +51,11 @@ class AudioStore {
       chunk.index === 0 ||
       this.done_indexes.indexOf(chunk.index - 1) !== -1
     ) {
-      return this.addChunk(chunk);
+      this.addChunk(chunk);
+      return;
     }
 
-    const addChunk = this.addChunk;
+    const addChunk = this.addChunk.bind(this);
     this.listeners[chunk.index - 1] = () => {
       addChunk(chunk);
     };
@@ -89,15 +88,15 @@ class AudioStore {
       this.calls += 1;
       const this_index = Number(this.index);
       this.index += 1;
-      const id = await this.scoopika.speak({
+      const audio = await this.scoopika.speak({
         text: sentence,
         voice: this.voice,
       });
       const chunk: AudioRes = {
         index: this_index,
         run_id: this.run_id,
-        read: `${this.scoopika.getUrl()}/pro/audio/${id}`,
-        audio_id: id,
+        audio_id: audio.id,
+        read: audio.url,
       };
 
       this.queueChunk(chunk);
@@ -118,6 +117,11 @@ class AudioStore {
     }
 
     return this.failed < 1;
+  }
+
+  turnOn() {
+    const handleToken = this.handleToken.bind(this);
+    this.hooks.addHook("onToken", (t) => handleToken(t));
   }
 }
 
