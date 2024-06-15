@@ -40,7 +40,10 @@ class Box {
     }
 
     if (client.engines) {
-      this.llm_clients = buildClients(client.engines);
+      this.llm_clients = buildClients(
+        this.client.providers_urls,
+        client.engines,
+      );
     }
 
     if (!options) {
@@ -52,7 +55,7 @@ class Box {
     this.box = box;
 
     if (engines) {
-      this.llm_clients = buildClients(engines);
+      this.llm_clients = buildClients(this.client.providers_urls, engines);
     }
 
     if (system_prompt) {
@@ -147,6 +150,8 @@ class Box {
           ...inputs,
           message: selected.instructions,
         },
+        hooksStore,
+        hooks,
       });
       responses.push({ name: agentData.name, run });
     }
@@ -160,7 +165,7 @@ class Box {
     inputs: types.RunInputs,
     history: types.LLMHistory[],
   ): Promise<{ name: string; instructions: string }[]> {
-    const new_inputs = await resolveInputs(this.client, inputs);
+    const { new_inputs } = await resolveInputs(this.client, inputs);
 
     if (!new_inputs.message) {
       throw new Error("Inputs message is required in AI Boxes");

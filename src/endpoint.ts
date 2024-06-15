@@ -236,7 +236,7 @@ class Endpoint {
     stream: Stream,
     payload: types.GetSessionRunsRequest["payload"],
   ) {
-    const runs = await this.scoopika.getSessionRuns(payload.id);
+    const runs = await this.scoopika.getSessionMessages(payload.id);
     await stream(this.streamMessage({ runs }));
   }
 

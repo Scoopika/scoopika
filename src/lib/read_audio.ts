@@ -1,37 +1,18 @@
 import { Scoopika } from "..";
-import { AudioPlug, Inputs } from "@scoopika/types";
+import { AudioPlug } from "@scoopika/types";
 
 async function readAudio(
   scoopika: Scoopika,
-  request: Inputs,
   audio: AudioPlug,
-): Promise<string> {
+): Promise<{ text: string; url: string }> {
   const type = audio.type;
 
   if (type === "function") {
-    return await audio.func(request);
+    throw new Error("Function audio is not supported yet!");
   }
 
-  let buffer: Buffer | ArrayBuffer;
-
-  if (type === "base64") {
-    buffer = Buffer.from(
-      Uint8Array.from(atob(audio.value), (c) => c.charCodeAt(0)),
-    );
-  } else {
-    const res = await fetch(audio.path);
-    if (!res.ok) {
-      throw new Error(`Failed to read remote audio file: ${res.status}`);
-    }
-    buffer = await res.arrayBuffer();
-  }
-
-  if (buffer instanceof ArrayBuffer) {
-    buffer = Buffer.from(buffer);
-  }
-
-  const text = await scoopika.listen(buffer);
-  return text;
+  const res = await scoopika.listen(audio);
+  return res;
 }
 
 export default readAudio;

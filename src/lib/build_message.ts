@@ -1,6 +1,10 @@
 import { Inputs, RunInputs, UserContentHistory } from "@scoopika/types";
 
 function buildMessage(inputs: RunInputs): UserContentHistory["content"] {
+  if (!inputs.images || inputs.images.length < 1) {
+    return inputs.message || "";
+  }
+
   const messages: UserContentHistory["content"] = [];
 
   if (inputs.message) {

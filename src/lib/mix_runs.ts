@@ -1,5 +1,4 @@
 import { Scoopika } from "..";
-import resolveInputs from "./resolve_inputs";
 import {
   LLMHistory,
   RunHistory,
@@ -13,22 +12,18 @@ function getUserContent(
   message?: string | undefined,
   images?: string[],
 ): UserContentHistory["content"] {
-  if (!message && (!images || images.length < 1)) {
-    return "";
-  }
-
-  if (message && (!images || images.length < 1)) {
-    return message;
+  if (!images || images.length < 1) {
+    return message || "";
   }
 
   return [
     { type: "text", text: message ?? "" },
-    ...(images?.map(
+    ...images.map(
       (i): UserImageContent => ({
         type: "image_url",
         image_url: { url: i },
       }),
-    ) || []),
+    ),
   ];
 }
 
@@ -40,16 +35,15 @@ export default async function mixRuns(
 ) {
   let mixed: LLMHistory[] = [];
   let latest_user_message: string | undefined = undefined;
-  let latest_user_images: string[] | undefined = undefined;
+  let latest_user_images: string[] = [];
 
   for await (const run of runs) {
     const role = run.role;
 
     if (role === "user") {
-      const message = (await resolveInputs(scoopika, run.request, true))
-        .message;
+      const message = run.resolved_message;
       latest_user_message = message;
-      latest_user_images = run.request.plug?.images;
+      latest_user_images = run.request.images || [];
       continue;
     }
 
@@ -61,6 +55,7 @@ export default async function mixRuns(
           role: "user",
           content: getUserContent(latest_user_message, latest_user_images),
         });
+        latest_user_images = [];
       }
 
       const calls: ToolHistory[] = run.tools.map((t) => ({
@@ -74,7 +69,7 @@ export default async function mixRuns(
 
       mixed.push({
         role: "assistant",
-        content: run.response.content as string,
+        content: run.response.content,
       });
       continue;
     }

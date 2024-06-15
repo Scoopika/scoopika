@@ -1,10 +1,9 @@
-import { AudioRes } from "@scoopika/types";
+import { AudioRes, AudioStream } from "@scoopika/types";
 import Hooks from "./hooks";
 import Scoopika from "./scoopika";
 import sleep from "./lib/sleep";
-import crypto from "node:crypto";
 
-const PUNCTUATION = [". ", "?", "!", ":", ";"];
+const PUNCTUATION = /([.?!;])/;
 
 class AudioStore {
   public scoopika: Scoopika;
@@ -18,7 +17,7 @@ class AudioStore {
   public failed: number = 0;
   public sentence: string = "";
   public later: string = "";
-  public listeners: Record<number, () => any> = [];
+  public listeners: Record<number, () => any> = {};
 
   constructor({
     scoopika,
@@ -37,16 +36,15 @@ class AudioStore {
     this.hooks = hooks;
   }
 
-  addChunk(chunk: AudioRes) {
+  addChunk(chunk: AudioStream) {
     this.chunks.push(chunk);
     this.done_indexes.push(chunk.index);
     this.hooks.executeHook("onAudio", chunk);
-    console.log("Push audio", chunk.index);
     const listener = this.listeners[chunk.index];
     if (listener) listener();
   }
 
-  queueChunk(chunk: AudioRes) {
+  queueChunk(chunk: AudioStream) {
     if (
       chunk.index === 0 ||
       this.done_indexes.indexOf(chunk.index - 1) !== -1
@@ -63,12 +61,17 @@ class AudioStore {
 
   async handleToken(segment: string) {
     this.sentence += segment;
-    for (const p of PUNCTUATION) {
-      if (this.sentence.includes(p)) {
-        const [prevSentence, newSentence] = this.sentence.split(p, 2);
-        this.sentence = newSentence;
-        this.generate(prevSentence + p);
+    let match = this.sentence.match(PUNCTUATION);
+
+    if (match) {
+      const p = match[0];
+      // Split only if it's a single dot, not multiple dots
+      if (p === "." && this.sentence.match(/\.{2,}/)) {
+        return;
       }
+      const [prevSentence, newSentence] = this.sentence.split(p, 2);
+      this.sentence = newSentence;
+      this.generate(prevSentence + p);
     }
   }
 
@@ -88,15 +91,15 @@ class AudioStore {
       this.calls += 1;
       const this_index = Number(this.index);
       this.index += 1;
-      const audio = await this.scoopika.speak({
-        text: sentence,
-        voice: this.voice,
-      });
-      const chunk: AudioRes = {
+      const id = await this.scoopika.generateAudioId(sentence, this.voice);
+      const url = `${this.scoopika.getUrl()}/audio/read/${id}`;
+
+      const chunk: AudioStream = {
+        chunk_index: this_index,
         index: this_index,
         run_id: this.run_id,
-        audio_id: audio.id,
-        read: audio.url,
+        audio_id: id,
+        read: url,
       };
 
       this.queueChunk(chunk);

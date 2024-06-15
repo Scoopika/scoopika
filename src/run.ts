@@ -1,4 +1,3 @@
-import buildPrompt from "./lib/build_prompt";
 import Model from "./model";
 import new_error from "./lib/error";
 import * as types from "@scoopika/types";
@@ -6,8 +5,10 @@ import validate, { validateObject } from "./lib/validate";
 import cleanToolParams from "./lib/clean_tool_params";
 import buildMessage from "./lib/build_message";
 import Hooks from "./hooks";
+import Scoopika from "./scoopika";
 
 class Run {
+  private scoopika: Scoopika;
   private clients: types.LLMClient[];
   private prompt: types.Prompt;
   public tools: types.ToolSchema[] = [];
@@ -22,15 +23,18 @@ class Run {
     tools,
     session,
     hooks,
+    scoopika,
   }: {
     clients: types.LLMClient[];
     agent: types.AgentData;
     tools?: types.ToolSchema[];
     session: types.StoreSession;
     hooks: Hooks;
+    scoopika: Scoopika;
   }) {
     this.clients = clients;
     this.agent = agent;
+    this.scoopika = scoopika;
     this.tools = tools || [];
     this.session = session;
     this.hooks = hooks;
@@ -57,15 +61,6 @@ class Run {
     const client: types.LLMClient = this.getClient();
     const messages: types.LLMHistory[] = [...history];
 
-    const prompt_content =
-      (this.session.saved_prompts || {})[this.agent.id] ||
-      this.validatePrompt(inputs);
-
-    messages.unshift({
-      role: "system",
-      content: prompt_content,
-    });
-
     const built_message = buildMessage(inputs);
     if (built_message.length > 0) {
       messages.push({
@@ -74,6 +69,13 @@ class Run {
         content: built_message,
       });
     }
+
+    const prompt_content = await this.generatePrompt(built_message);
+
+    messages.unshift({
+      role: "system",
+      content: prompt_content,
+    });
 
     const model = new Model(client, this.tools);
 
@@ -104,45 +106,28 @@ class Run {
     };
   }
 
-  validatePrompt(user_inputs: types.RunInputs) {
-    return `You are called ${this.agent.name} ` + this.prompt.content;
-    // const prompt_inputs: Record<string, types.Parameter> = {};
-    //
-    // for (const i of this.prompt.inputs) {
-    //   prompt_inputs[i.id] = {
-    //     type: i.type,
-    //     description: i.description,
-    //     enum: i.enum,
-    //     default: i.default,
-    //     required: i.required,
-    //   };
-    // }
-    //
-    // const validation = validateObject(prompt_inputs, [], user_inputs);
-    //
-    // if (!validation.success) {
-    //   throw new Error(validation.error);
-    // }
-    //
-    // const built_prompt = buildPrompt(this.prompt, validation.data);
-    //
-    // if (built_prompt.missing.length > 0) {
-    //   const missing = built_prompt.missing.map(
-    //     (m) => `${m.id}: ${m.description}`,
-    //   );
-    //   throw new Error(
-    //     new_error(
-    //       "missing prompt variables",
-    //       `Missing data: ${missing}`,
-    //       "prompt validation",
-    //     ),
-    //   );
-    // }
-    //
-    // const content =
-    //   `You are called ${this.agent.name}. ` + built_prompt.content;
-    // this.built_prompt = content;
-    // return content;
+  async generatePrompt(
+    message: string | (types.UserTextContent | types.UserImageContent)[],
+  ): Promise<string> {
+    let prompt = `You are called ${this.agent.name}. ` + this.prompt.content;
+    let text: string = "";
+
+    if (typeof message === "string") {
+      text = message;
+    } else {
+      const text_messages = message.filter(
+        (m) => m.type === "text",
+      ) as types.UserTextContent[];
+      text = text_messages.map((m) => m.text).join("\n");
+    }
+
+    const rag = await this.scoopika.rag(this.agent.id, text);
+
+    if (rag.length > 0) {
+      prompt += "\nUseful information:\n" + rag;
+    }
+
+    return prompt;
   }
 
   getClient(): types.LLMClient {

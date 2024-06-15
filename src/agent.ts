@@ -30,6 +30,7 @@ class Agent {
     this.id = id;
     this.hooks = new Hooks();
     this.llm_clients = buildClients(
+      this.client.providers_urls,
       client.engines,
       options?.dangerouslyAllowBrowser,
     );
@@ -49,7 +50,11 @@ class Agent {
     }
 
     if (engines) {
-      this.llm_clients = buildClients(engines);
+      this.llm_clients = buildClients(
+        this.client.providers_urls,
+        engines,
+        options?.dangerouslyAllowBrowser,
+      );
     }
   }
 
@@ -69,7 +74,10 @@ class Agent {
       platform_keys.forEach((k) => {
         platform_engines[k.name] = k.value;
       });
-      const platform_clients = buildClients(platform_engines);
+      const platform_clients = buildClients(
+        this.client.providers_urls,
+        platform_engines,
+      );
       this.llm_clients = [...this.llm_clients, ...platform_clients];
     }
 
@@ -131,12 +139,20 @@ class Agent {
       audioStore.turnOn();
     }
 
-    const new_inputs: types.RunInputs = {
-      ...(await resolveInputs(this.client, inputs)),
-    };
-
+    const { new_inputs, context_message } = await resolveInputs(
+      this.client,
+      inputs,
+    );
     const start = Date.now();
     const session = await this.client.getSession(session_id);
+
+    hooksStore.executeHook("onStart", { run_id, session_id });
+    const history: types.LLMHistory[] = await mixRuns(
+      this.client,
+      agent.id,
+      session,
+      await this.client.getSessionMessages(session),
+    );
 
     if (options?.save_history !== false) {
       this.client.pushRuns(session, [
@@ -146,20 +162,17 @@ class Agent {
           session_id,
           run_id,
           user_id: session.user_id,
-          request: original_inputs,
+          request: {
+            ...original_inputs,
+            audio: new_inputs.audio,
+          },
+          resolved_message: context_message,
         },
       ]);
     }
 
-    hooksStore.executeHook("onStart", { run_id, session_id });
-    const history: types.LLMHistory[] = await mixRuns(
-      this.client,
-      agent.id,
-      session,
-      await this.client.getSessionRuns(session),
-    );
-
     const modelRun = new Run({
+      scoopika: this.client,
       session,
       clients: this.llm_clients,
       agent,
@@ -181,16 +194,6 @@ class Agent {
       options: { session_id, run_id },
       history,
     });
-
-    if (modelRun.built_prompt) {
-      await this.client.store.updateSession(session_id, {
-        ...session,
-        saved_prompts: {
-          ...session.saved_prompts,
-          [agent.id]: modelRun.built_prompt,
-        },
-      });
-    }
 
     const audioDone = await audioStore.isDone();
     if (!audioDone) {
@@ -249,19 +252,17 @@ class Agent {
 
     const agent = this.agent as types.AgentData;
     const session = await this.client.getSession(session_id);
-    const new_inputs: types.RunInputs = await resolveInputs(
-      this.client,
-      inputs,
-    );
+    const { new_inputs } = await resolveInputs(this.client, inputs);
 
     const history: types.LLMHistory[] = await mixRuns(
       this.client,
       "STRUCTURED",
       session,
-      await this.client.getSessionRuns(session),
+      await this.client.getSessionMessages(session),
     );
 
     const modelRun = new Run({
+      scoopika: this.client,
       session,
       clients: this.llm_clients,
       agent,

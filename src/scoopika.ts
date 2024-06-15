@@ -15,22 +15,45 @@ class Scoopika {
   public memoryStore: InMemoryStore;
   public engines: types.RawEngines = {};
   public stateStore: StateStore;
-  private default_voice: string = VOICES[1];
+  private default_voice: string = VOICES[0];
+  public providers_urls: Record<types.AllEngines, string> &
+    Record<string, string> = {
+    together: "https://api.together.xyz/v1",
+    fireworks: "https://api.fireworks.ai/inference/v1",
+    openai: "",
+    google: "",
+    groq: "https://api.groq.com/openai/v1",
+    perplexity: "https://api.perplexity.ai",
+  };
 
   // Will be used soon for caching somehow
   public loaded_agents: Record<string, types.AgentData> = {};
   public loaded_boxes: Record<string, types.BoxData> = {};
+  host_audio: boolean = true;
+  beta_allow_knowledge: boolean = false;
 
   constructor({
     token,
     store,
     engines,
+    host_audio,
+    beta_allow_knowledge,
   }: {
     token?: string;
     store?: string | InMemoryStore | RemoteStore;
     engines?: types.RawEngines;
+    host_audio?: boolean;
+    beta_allow_knowledge?: boolean;
   } = {}) {
     const access_token = token || process.env.SCOOPIKA_TOKEN;
+
+    if (typeof host_audio === "boolean") {
+      this.host_audio = host_audio;
+    }
+
+    if (typeof beta_allow_knowledge === "boolean") {
+      this.beta_allow_knowledge = beta_allow_knowledge;
+    }
 
     if (!access_token || access_token.length < 1) {
       throw new Error(
@@ -57,8 +80,12 @@ class Scoopika {
     this.store = store;
   }
 
-  getUrl() {
+  public getUrl() {
     return this.url;
+  }
+
+  public extendProviders(name: string, url: string) {
+    this.providers_urls[name] = url;
   }
 
   // Sessions
@@ -114,11 +141,11 @@ class Scoopika {
     return sessions;
   }
 
-  public async getSessionRuns(
+  public async getSessionMessages(
     session: types.StoreSession | string,
   ): Promise<types.RunHistory[]> {
     const runs = await this.store.getRuns(session);
-    return runs;
+    return runs.sort((a, b) => a.at - b.at);
   }
 
   public async getSessionHistory(
@@ -257,14 +284,40 @@ class Scoopika {
     return data as { url: string; usage: number; id: string };
   }
 
-  public async listen(binary: Buffer | ArrayBuffer) {
-    const binary_data = binary.toString("base64");
+  public async generateAudioId(text: string, voice?: string): Promise<string> {
+    voice = voice ?? this.default_voice;
+    if (VOICES.indexOf(voice) === -1) {
+      voice = this.default_voice;
+      console.warn("Invalid agent voice. falling back to default");
+    }
+
+    const res = await fetch(`${this.url}/audio/new`, {
+      method: "POST",
+      headers: { authorization: this.token },
+      body: JSON.stringify({ voice, text }),
+    });
+
+    const data = await res.json();
+    const id = data?.id;
+
+    if (!data?.success || typeof id !== "string") {
+      const err = data?.error || "Remote server error: Can't genearte audio ID";
+      throw new Error(err);
+    }
+
+    return id;
+  }
+
+  public async listen(audio: types.AudioPlug) {
     const res = await fetch(this.url + "/main/listen", {
       method: "POST",
       headers: {
         authorization: this.token,
       },
-      body: JSON.stringify({ data: binary_data }),
+      body: JSON.stringify({
+        data: audio,
+        host: this.host_audio,
+      }),
     });
 
     const data:
@@ -275,6 +328,7 @@ class Scoopika {
       | {
           success: true;
           text: string;
+          url: string;
         } = await res.json();
 
     if (!data || !data.success) {
@@ -282,18 +336,27 @@ class Scoopika {
       throw new Error(`Remote sevrer error: ${err}`);
     }
 
-    return data.text;
+    return { text: data.text, url: data.url };
   }
 
-  async rag(id: string, text: string) {
-    const res = await fetch(`${this.url}/pro/query-knowledge/${id}`, {
-      method: "POST",
-      headers: { authorization: this.token },
-      body: JSON.stringify({ text }),
-    });
+  async rag(id: string, text: string): Promise<string> {
+    if (!this.beta_allow_knowledge) {
+      return "";
+    }
 
-    const data = await res.json();
-    return (data?.data || "") as string;
+    try {
+      const res = await fetch(`${this.url}/pro/query-knowledge/${id}`, {
+        method: "POST",
+        headers: { authorization: this.token },
+        body: JSON.stringify({ text }),
+      });
+
+      const data = await res.json();
+      return (data?.data || "") as string;
+    } catch (err) {
+      console.error("Error loading custom knowledge", err);
+      return "";
+    }
   }
 }
 
