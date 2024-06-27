@@ -1,32 +1,42 @@
-import { Inputs } from "@scoopika/types";
+import { RemoteAudio, RunInputs } from "@scoopika/types";
+import { Scoopika } from "..";
+import readAudio from "./read_audio";
 
-export default async function resolveInputs(inputs: Inputs) {
-  if (!inputs.plug) {
-    return inputs;
-  }
-
+export default async function resolveInputs(
+  scoopika: Scoopika,
+  inputs: RunInputs,
+): Promise<{ new_inputs: RunInputs; context_message: string }> {
   let message = "";
+  let context_message = "";
 
-  const data = inputs.plug.data;
-  const rag = inputs.plug.rag;
+  let data = inputs.context || [];
+  const audios = inputs.audio;
+  const audio_urls: RemoteAudio[] = [];
 
-  if (rag) {
-    const rag_res =
-      typeof rag === "string" ? rag : await rag(inputs.message || "");
-    message += "More information that might be helpful:\n" + rag_res;
+  for await (const a of audios || []) {
+    const { text, url } = await readAudio(scoopika, a);
+    audio_urls.push({ type: "remote", path: url });
+    message += `\n${text}`;
   }
 
+  context_message = message;
   for (const item of data || []) {
-    message += item.description + ":\n" + item.data;
+    message = item.description + ":\n" + item.value + "\n" + message;
   }
 
-  if (inputs.message) {
-    message += "Current user request:\n" + inputs.message;
+  for (const item of (data || []).filter((d) => d.scope === "session")) {
+    context_message = item.description + ":\n" + item.value + "\n" + message;
   }
 
   if (message.length < 1) {
-    return inputs;
+    return {
+      new_inputs: { ...inputs, audio: audio_urls },
+      context_message,
+    };
   }
 
-  return { ...inputs, message };
+  return {
+    new_inputs: { ...inputs, message, audio: audio_urls },
+    context_message,
+  };
 }

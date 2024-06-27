@@ -2,6 +2,7 @@ import new_error from "./lib/error";
 import { ToolRun } from "./tool";
 import hosts from "./models/hosts";
 import * as types from "@scoopika/types";
+import Hooks from "./hooks";
 
 class Model {
   public client: types.LLMClient;
@@ -39,21 +40,15 @@ class Model {
   async baseRun({
     run_id,
     session_id,
-    stream,
-    onToolCall,
-    onToolRes,
     inputs,
     execute_tools,
-    onClientAction,
+    hooks,
   }: {
     run_id: string;
     session_id: string;
-    stream: types.StreamFunc;
-    onToolCall: (call: types.LLMToolCall) => any;
-    onToolRes: (tool: { call: types.LLMToolCall; result: any }) => any;
     inputs: types.LLMFunctionBaseInputs;
+    hooks: Hooks;
     execute_tools?: boolean;
-    onClientAction?: (action: types.ServerClientActionStream["data"]) => any;
   }): Promise<types.LLMTextResponse> {
     const messages = [
       ...inputs.messages,
@@ -61,9 +56,14 @@ class Model {
       ...this.updated_history,
     ];
 
-    const output = await this.host.text(run_id, this.client.client, stream, {
-      ...inputs,
-      messages,
+    const output = await this.host.text({
+      run_id,
+      client: this.client.client,
+      hooks,
+      inputs: {
+        ...inputs,
+        messages,
+      },
     });
 
     if (output.type !== "text") {
@@ -113,7 +113,7 @@ class Model {
         );
       }
 
-      onToolCall(tool_call);
+      hooks.executeHook("onToolCall", tool_call);
       const wanted_tool_schema = wanted_tools_schema[0];
       const tool_run = new ToolRun({
         id: tool_call.id,
@@ -121,12 +121,12 @@ class Model {
         session_id,
         tool: wanted_tool_schema,
         args: JSON.parse(call_function.arguments),
-        clientSideHook: onClientAction,
+        hooks,
       });
 
       const execution = await tool_run.execute();
 
-      onToolRes({
+      hooks.executeHook("onToolResult", {
         call: tool_call,
         result: execution,
       });
@@ -164,12 +164,9 @@ class Model {
       return await this.baseRun({
         run_id,
         session_id,
-        stream,
-        onToolCall,
-        onToolRes,
         inputs,
         execute_tools,
-        onClientAction,
+        hooks,
       });
     }
 
@@ -183,24 +180,10 @@ class Model {
   async jsonRun(
     inputs: types.LLMFunctionBaseInputs,
     schema: types.ToolParameters,
-    stream: types.StreamFunc,
   ): Promise<types.LLMJsonResponse> {
-    const response = await this.host.json(
-      this.client.client,
-      inputs,
-      schema,
-      stream,
-    );
+    const response = await this.host.json(this.client.client, inputs, schema);
 
     return response;
-  }
-
-  async imageRun(
-    run_id: string,
-    stream: types.StreamFunc,
-    inputs: types.LLMFunctionImageInputs,
-  ) {
-    return await this.host.image(run_id, this.client.client, stream, inputs);
   }
 }
 

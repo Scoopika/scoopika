@@ -9,7 +9,6 @@ import {
   ServerBoxResponseStream,
   ServerAgentResponseStream,
 } from "@scoopika/types";
-
 class StreamObject<Data> {
   data: Data;
 

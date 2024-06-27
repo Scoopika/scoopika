@@ -1,55 +1,42 @@
-import buildPrompt from "./lib/build_prompt";
 import Model from "./model";
 import new_error from "./lib/error";
 import * as types from "@scoopika/types";
-import validate, { validateObject } from "./lib/validate";
-import cleanToolParams from "./lib/clean_tool_params";
+import validate from "./lib/validate";
+import buildMessage from "./lib/build_message";
+import Hooks from "./hooks";
+import Scoopika from "./scoopika";
 
 class Run {
+  private scoopika: Scoopika;
   private clients: types.LLMClient[];
   private prompt: types.Prompt;
   public tools: types.ToolSchema[] = [];
   private agent: types.AgentData;
   private session: types.StoreSession;
   public built_prompt: string | undefined = undefined;
-
-  private stream: types.StreamFunc;
-  private toolCallStream: (call: types.LLMToolCall) => any;
-  private toolResStream: (tool: {
-    call: types.LLMToolCall;
-    result: any;
-  }) => any;
-  private clientActionStream:
-    | ((action: types.ServerClientActionStream["data"]) => any)
-    | undefined;
+  public hooks: Hooks;
 
   constructor({
     clients,
     agent,
     tools,
-    stream,
-    toolCallStream,
-    toolResStream,
-    clientActionStream,
     session,
+    hooks,
+    scoopika,
   }: {
     clients: types.LLMClient[];
     agent: types.AgentData;
     tools?: types.ToolSchema[];
-    stream: types.StreamFunc;
-    toolCallStream: (call: types.LLMToolCall) => any;
-    toolResStream: (tool: { call: types.LLMToolCall; result: any }) => any;
     session: types.StoreSession;
-    clientActionStream?: (a: types.ServerClientActionStream["data"]) => any;
+    hooks: Hooks;
+    scoopika: Scoopika;
   }) {
     this.clients = clients;
     this.agent = agent;
-    this.stream = stream;
-    this.toolCallStream = toolCallStream;
-    this.toolResStream = toolResStream;
+    this.scoopika = scoopika;
     this.tools = tools || [];
     this.session = session;
-    this.clientActionStream = clientActionStream;
+    this.hooks = hooks;
 
     const prompt = agent.prompts[0];
     if (!prompt) {
@@ -62,31 +49,32 @@ class Run {
   async run({
     run_id,
     inputs,
+    options,
     history,
   }: {
     run_id: string;
-    inputs: types.Inputs;
+    inputs: types.RunInputs;
+    options: types.RunOptions;
     history: types.LLMHistory[];
   }) {
     const client: types.LLMClient = this.getClient();
     const messages: types.LLMHistory[] = [...history];
 
-    const prompt_content =
-      (this.session.saved_prompts || {})[this.agent.id] ||
-      this.validatePrompt(inputs);
+    const built_message = buildMessage(inputs);
+    if (built_message.length > 0) {
+      messages.push({
+        role: "user",
+        name: this.session.user_name,
+        content: built_message,
+      });
+    }
+
+    const prompt_content = await this.generatePrompt(built_message);
 
     messages.unshift({
       role: "system",
       content: prompt_content,
     });
-
-    if (inputs.message) {
-      messages.push({
-        role: "user",
-        name: this.session.user_name,
-        content: inputs.message,
-      });
-    }
 
     const model = new Model(client, this.tools);
 
@@ -98,20 +86,17 @@ class Run {
         type: "function",
         function: {
           ...t.tool.function,
-          parameters: cleanToolParams(t.tool.function.parameters),
+          parameters: t.tool.function.parameters,
         },
       })),
     };
 
     const llm_output = await model.baseRun({
       run_id,
-      session_id: inputs.session_id as string,
-      stream: this.stream,
-      onToolCall: this.toolCallStream,
-      onToolRes: this.toolResStream,
+      session_id: options.session_id as string,
       inputs: llm_inputs,
       execute_tools: true,
-      onClientAction: this.clientActionStream,
+      hooks: this.hooks,
     });
 
     return {
@@ -120,44 +105,28 @@ class Run {
     };
   }
 
-  validatePrompt(user_inputs: types.Inputs) {
-    const prompt_inputs: Record<string, types.Parameter> = {};
+  async generatePrompt(
+    message: string | (types.UserTextContent | types.UserImageContent)[],
+  ): Promise<string> {
+    let prompt = `You are called ${this.agent.name}. ` + this.prompt.content;
+    let text: string = "";
 
-    for (const i of this.prompt.inputs) {
-      prompt_inputs[i.id] = {
-        type: i.type,
-        description: i.description,
-        enum: i.enum,
-        default: i.default,
-        required: i.required,
-      };
+    if (typeof message === "string") {
+      text = message;
+    } else {
+      const text_messages = message.filter(
+        (m) => m.type === "text",
+      ) as types.UserTextContent[];
+      text = text_messages.map((m) => m.text).join("\n");
     }
 
-    const validation = validateObject(prompt_inputs, [], user_inputs);
+    const rag = await this.scoopika.rag(this.agent.id, text);
 
-    if (!validation.success) {
-      throw new Error(validation.error);
+    if (rag.length > 0) {
+      prompt += "\nUseful information:\n" + rag;
     }
 
-    const built_prompt = buildPrompt(this.prompt, validation.data);
-
-    if (built_prompt.missing.length > 0) {
-      const missing = built_prompt.missing.map(
-        (m) => `${m.id}: ${m.description}`,
-      );
-      throw new Error(
-        new_error(
-          "missing prompt variables",
-          `Missing data: ${missing}`,
-          "prompt validation",
-        ),
-      );
-    }
-
-    const content =
-      `You are called ${this.agent.name}. ` + built_prompt.content;
-    this.built_prompt = content;
-    return content;
+    return prompt;
   }
 
   getClient(): types.LLMClient {
@@ -182,18 +151,12 @@ class Run {
     system_prompt,
     history,
     schema,
-    stream,
   }: {
-    inputs?: types.Inputs;
+    inputs?: types.RunInputs;
     schema: types.ToolParameters;
     system_prompt?: string;
     history: types.LLMHistory[];
-    stream?: types.StreamFunc;
   }) {
-    if (!stream) {
-      stream = () => {};
-    }
-
     const client = this.getClient();
     const messages: types.LLMHistory[] = [
       {
@@ -205,10 +168,11 @@ class Run {
       ...history,
     ];
 
-    if (inputs?.message) {
+    const built_message = buildMessage(inputs || {});
+    if (built_message.length > 0) {
       messages.push({
         role: "user",
-        content: inputs.message,
+        content: built_message,
       });
     }
 
@@ -224,22 +188,16 @@ class Run {
           schema,
         },
       },
-      cleanToolParams(schema),
-      stream,
+      schema,
     );
 
-    const validated = validateObject(
-      schema.properties,
-      schema.required || [],
-      response.content,
-    );
+    const validated = validate(schema, response.content);
 
     if (!validated.success) {
       throw new Error("Invalid LLM structured output");
     }
 
-    validate(schema, validated.data);
-    return validated.data as Data;
+    return response.content as Data;
   }
 }
 

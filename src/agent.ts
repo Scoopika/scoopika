@@ -5,7 +5,14 @@ import * as types from "@scoopika/types";
 import Scoopika from "./scoopika";
 import Run from "./run";
 import mixRuns from "./lib/mix_runs";
-import { FromSchema, JSONSchema } from "json-schema-to-ts";
+import Hooks from "./hooks";
+import AudioStore from "./audio_store";
+import agentAsTool from "./lib/agent_as_tool";
+import { createSchema } from "./create_schema";
+import { z } from "zod";
+import { createTool } from "./create_tool";
+import madeToolToFunctionTool from "./lib/made_tool_to_function_tool";
+import { JSONSchema } from "openai/lib/jsonschema";
 
 class Agent {
   public llm_clients: types.LLMClient[] = [];
@@ -13,16 +20,7 @@ class Agent {
   public id: string;
   private client: Scoopika;
   public tools: types.ToolSchema[] = [];
-
-  streamFunc: types.StreamFunc | undefined;
-  stream_listeners: types.StreamFunc[] = [];
-  status_listeners: types.StatusUpdateFunc[] = [];
-  tool_calls_listeners: ((call: types.LLMToolCall) => any)[] = [];
-  tool_results_listeners: ((tool: {
-    call: types.LLMToolCall;
-    result: any;
-  }) => any)[] = [];
-  finish_listeners: ((response: types.AgentResponse) => any)[] = [];
+  public hooks: Hooks;
 
   constructor(
     id: string,
@@ -30,12 +28,17 @@ class Agent {
     options?: {
       agent?: types.AgentData;
       engines?: types.RawEngines;
-      streamFunc?: types.StreamFunc;
+      dangerouslyAllowBrowser?: boolean;
     },
   ) {
     this.client = client;
     this.id = id;
-    this.llm_clients = buildClients(client.engines);
+    this.hooks = new Hooks();
+    this.llm_clients = buildClients(
+      this.client.providers_urls,
+      client.engines,
+      options?.dangerouslyAllowBrowser,
+    );
 
     if (client.loaded_agents[id]) {
       this.agent = client.loaded_agents[id];
@@ -45,29 +48,58 @@ class Agent {
       return;
     }
 
-    const { agent, engines, streamFunc } = options;
+    const { agent, engines } = options;
 
     if (agent) {
       this.agent = agent;
     }
 
     if (engines) {
-      this.llm_clients = buildClients(engines);
+      this.llm_clients = buildClients(
+        this.client.providers_urls,
+        engines,
+        options?.dangerouslyAllowBrowser,
+      );
     }
-
-    this.streamFunc = streamFunc;
   }
 
   private async loadAgent() {
-    const agent = await this.client.loadAgent(this.id);
+    const agent = this.agent || (await this.client.loadAgent(this.id));
+    const prompt = agent.prompts[0];
+
+    if (!prompt) {
+      throw new Error("The agent does not have a prompt!");
+    }
+
+    const host = prompt.llm_client;
+
+    if (this.llm_clients.filter((l) => l.host === host).length < 1) {
+      const platform_keys = await this.client.loadKeys();
+      const platform_engines: Record<string, string> = {};
+      platform_keys.forEach((k) => {
+        platform_engines[k.name] = k.value;
+      });
+      const platform_clients = buildClients(
+        this.client.providers_urls,
+        platform_engines,
+      );
+      this.llm_clients = [...this.llm_clients, ...platform_clients];
+    }
+
+    if (this.llm_clients.filter((l) => l.host === host).length < 1) {
+      throw new Error(
+        `This agent uses ${host} and no key for it is found in your server or account`,
+      );
+    }
+
+    if (agent?.in_tools) {
+      await this.buildInTools(agent.in_tools);
+    }
+
     this.agent = agent;
   }
 
   public async load(): Promise<Agent> {
-    if (this.agent) {
-      return this;
-    }
-
     await this.loadAgent();
 
     if (!this.agent) {
@@ -79,104 +111,109 @@ class Agent {
 
   public async run({
     inputs,
+    options,
     hooks,
+    hooksStore,
   }: {
-    inputs: types.Inputs;
+    inputs: types.RunInputs;
+    options?: types.RunOptions;
     hooks?: types.Hooks;
+    hooksStore?: Hooks;
   }): Promise<types.AgentResponse> {
-    if (!this.agent) {
-      await this.loadAgent();
-    }
+    await this.loadAgent();
 
+    const agent = this.agent as types.AgentData;
     const session_id: string =
-      inputs.session_id || "session_" + crypto.randomUUID();
-    const run_id = inputs.run_id || "run_" + crypto.randomUUID();
+      options?.session_id ?? "session_" + crypto.randomUUID();
+    const run_id = options?.run_id ?? "run_" + crypto.randomUUID();
     const original_inputs: types.Inputs = JSON.parse(JSON.stringify(inputs));
 
-    const new_inputs: types.Inputs = {
-      ...(await resolveInputs(inputs)),
-      session_id,
-      run_id,
-    };
+    if (!hooksStore) {
+      hooksStore = new Hooks();
+    }
 
+    hooksStore.addRunHooks(hooks || {});
+    const audioStore = new AudioStore({
+      scoopika: this.client,
+      hooks: hooksStore,
+      run_id,
+      voice: agent.voice,
+    });
+
+    if (options?.voice === true) {
+      audioStore.turnOn();
+    }
+
+    const { new_inputs, context_message } = await resolveInputs(
+      this.client,
+      inputs,
+    );
     const start = Date.now();
-    const agent = this.agent as types.AgentData;
     const session = await this.client.getSession(session_id);
 
-    if (inputs.save_history !== false) {
-      this.client.pushRuns(session, [
+    hooksStore.executeHook("onStart", { run_id, session_id });
+    const history: types.LLMHistory[] = await mixRuns(
+      this.client,
+      agent.id,
+      session,
+      await this.client.getSessionMessages(session),
+    );
+
+    if (options?.save_history !== false) {
+      await this.client.pushRuns(session, [
         {
           at: start,
           role: "user",
           session_id,
           run_id,
           user_id: session.user_id,
-          request: original_inputs,
+          request: {
+            ...original_inputs,
+            audio: new_inputs.audio,
+          },
+          resolved_message: context_message,
         },
       ]);
     }
 
-    if (hooks?.onStart) {
-      hooks.onStart({ run_id, session_id });
-    }
-
-    const run_listeners: ((s: types.StreamMessage) => any)[] = [];
-
-    if (hooks?.onStream) {
-      run_listeners.push(hooks.onStream);
-    }
-
-    if (hooks?.onToken) {
-      run_listeners.push(async (s: types.StreamMessage) => {
-        if (hooks.onToken) {
-          hooks.onToken(s.content);
-        }
-      });
-    }
-
-    const history: types.LLMHistory[] = await mixRuns(
-      agent.id,
-      session,
-      await this.client.getSessionRuns(session),
-    );
-
     const modelRun = new Run({
+      scoopika: this.client,
       session,
       clients: this.llm_clients,
       agent,
       tools: [],
-      stream: this.getStreamFunc(run_listeners),
-      toolCallStream: this.getToolCallStreamFunc(
-        hooks?.onToolCall && [hooks.onToolCall],
-      ),
-      toolResStream: this.getToolResStreamFunc(
-        hooks?.onToolResult && [hooks.onToolResult],
-      ),
-      clientActionStream: hooks?.onClientSideAction,
+      hooks: hooksStore,
     });
 
-    const wanted_tools = await this.selectTools(modelRun, history, new_inputs);
+    const wanted_tools = await this.selectTools(
+      modelRun,
+      history,
+      new_inputs,
+      options,
+    );
     modelRun.tools = wanted_tools;
 
-    const run = await modelRun.run({ run_id, inputs: new_inputs, history });
+    const run = await modelRun.run({
+      run_id,
+      inputs: new_inputs,
+      options: { session_id, run_id },
+      history,
+    });
 
-    if (modelRun.built_prompt) {
-      await this.client.store.updateSession(session_id, {
-        ...session,
-        saved_prompts: {
-          ...session.saved_prompts,
-          [agent.id]: modelRun.built_prompt,
-        },
-      });
+    const audioDone = await audioStore.isDone();
+    if (!audioDone) {
+      console.error("ERROR: Not all audio chunks generated successfully!");
     }
 
     const res: types.AgentResponse = {
       run_id,
       session_id,
-      response: run.response,
+      content: run.response.content,
+      audio: audioStore.chunks,
+      tools_calls: run.tools_history,
     };
 
-    if (inputs.save_history !== false) {
+    if (options?.save_history !== false) {
       await this.client.pushRuns(session, [
         {
           at: Date.now(),
@@ -185,68 +222,59 @@ class Agent {
           session_id,
           agent_id: agent.id,
           agent_name: agent.name,
-          response: run.response,
+          response: res,
           tools: run.tools_history,
         },
       ]);
     }
 
-    this.finish_listeners.forEach((listener) => listener(res));
-
-    if (hooks?.onFinish) {
-      hooks.onFinish(res);
-    }
-
-    if (hooks?.onAgentResponse) {
-      hooks.onAgentResponse({
-        name: agent.name,
-        response: res,
-      });
-    }
+    hooksStore.executeHook("onFinish", res);
+    hooksStore.executeHook("onAgentResponse", {
+      name: agent.name,
+      response: res,
+    });
 
     return res;
   }
 
-  public async structuredOutput<Data = Record<string, any>>({
+  public async generateJSON({
     inputs,
+    options,
     schema,
     system_prompt,
   }: {
-    inputs: types.Inputs;
-    schema: types.ToolParameters | JSONSchema;
+    inputs: types.RunInputs;
+    options?: types.RunOptions;
+    schema: JSONSchema;
     system_prompt?: string;
-  }): Promise<Data> {
-    if (!this.agent) {
-      await this.loadAgent();
-    }
+  }) {
+    await this.loadAgent();
 
     const session_id: string =
-      typeof inputs.session_id === "string"
-        ? inputs.session_id
-        : "session_" + crypto.randomUUID();
-
+      options?.session_id ?? "session_" + crypto.randomUUID();
     const agent = this.agent as types.AgentData;
     const session = await this.client.getSession(session_id);
-    const new_inputs: types.Inputs = await resolveInputs(inputs);
+    const { new_inputs } = await resolveInputs(this.client, inputs);
 
     const history: types.LLMHistory[] = await mixRuns(
+      this.client,
       "STRUCTURED",
       session,
-      await this.client.getSessionRuns(session),
+      await this.client.getSessionMessages(session),
     );
 
     const modelRun = new Run({
+      scoopika: this.client,
       session,
       clients: this.llm_clients,
       agent,
-      tools: [...this.tools, ...(agent.tools || []), ...(inputs.tools || [])],
-      stream: () => {},
-      toolCallStream: () => {},
-      toolResStream: () => {},
+      tools: [...this.tools, ...(agent.tools || []), ...(options?.tools || [])],
+      hooks: new Hooks(),
     });
-    const output = await modelRun.jsonRun<Data>({
+
+    const output = await modelRun.jsonRun<any>({
       inputs: new_inputs,
-      schema: schema as types.ToolParameters,
+      schema,
       history,
       system_prompt,
     });
@@ -254,48 +282,53 @@ class Agent {
     return output;
   }
 
-  private getStreamFunc(
-    run_listeners?: ((stream: types.StreamMessage) => void)[],
-  ): types.StreamFunc {
-    const listeners = [...this.stream_listeners, ...(run_listeners || [])];
-    return (message: types.StreamMessage) => {
-      for (const l of listeners) {
-        l(message);
-      }
-    };
-  }
+  public async structuredOutput<
+    SCHEMA extends z.ZodTypeAny = any,
+    DATA = z.infer<SCHEMA>,
+  >({
+    inputs,
+    options,
+    schema,
+    system_prompt,
+  }: {
+    inputs: types.RunInputs;
+    options?: types.RunOptions;
+    schema: SCHEMA;
+    system_prompt?: string;
+  }): Promise<DATA> {
+    await this.loadAgent();
 
-  private getToolCallStreamFunc(
-    run_listeners?: ((call: types.LLMToolCall) => any)[],
-  ): (call: types.LLMToolCall) => any {
-    const listeners = [...this.tool_calls_listeners, ...(run_listeners || [])];
-    return (call: types.LLMToolCall) => {
-      listeners.map((l) => l(call));
-    };
-  }
+    const session_id: string =
+      options?.session_id ?? "session_" + crypto.randomUUID();
+    const agent = this.agent as types.AgentData;
+    const session = await this.client.getSession(session_id);
+    const { new_inputs } = await resolveInputs(this.client, inputs);
 
-  private getToolResStreamFunc(
-    run_listeners?: ((tool: { call: types.LLMToolCall; result: any }) => any)[],
-  ): (tool: { call: types.LLMToolCall; result: any }) => any {
-    const listeners = [
-      ...this.tool_results_listeners,
-      ...(run_listeners || []),
-    ];
-    return (tool: { call: types.LLMToolCall; result: any }) => {
-      listeners.map((l) => l(tool));
-    };
-  }
+    const history: types.LLMHistory[] = await mixRuns(
+      this.client,
+      "STRUCTURED",
+      session,
+      await this.client.getSessionMessages(session),
+    );
 
-  public onToolCall(call: types.LLMToolCall): undefined {
-    this.tool_calls_listeners.map((listener) => listener(call));
-  }
+    const modelRun = new Run({
+      scoopika: this.client,
+      session,
+      clients: this.llm_clients,
+      agent,
+      tools: [...this.tools, ...(agent.tools || []), ...(options?.tools || [])],
+      hooks: new Hooks(),
+    });
 
-  public onStream(func: types.StreamFunc): void {
-    this.stream_listeners.push(func);
-  }
+    const json_schema = createSchema(schema);
+    const output = await modelRun.jsonRun<DATA>({
+      inputs: new_inputs,
+      schema: json_schema,
+      history,
+      system_prompt,
+    });
 
-  public onToken(func: types.StreamFunc): void {
-    this.stream_listeners.push(func);
+    return output as DATA;
   }
 
   public async info<K extends keyof types.AgentData>(
@@ -311,19 +344,15 @@ class Agent {
     return this.agent[key];
   }
 
-  public addTool<Data = any>(
-    func: (args: Data) => any,
-    tool: types.ToolFunction,
+  public addTool<PARAMETERS extends z.ZodTypeAny, RESULT = any>(
+    tool?: types.CoreTool<PARAMETERS, RESULT>,
   ) {
-    this.tools.push({
-      type: "function",
-      executor: func,
-      tool: {
-        type: "function",
-        function: tool,
-      },
-    });
-
+    if (!tool) return;
+    const built_tool = createTool(tool);
+    this.tools = [
+      ...this.tools.filter((t) => t.tool.function.name !== tool.name),
+      madeToolToFunctionTool(built_tool),
+    ];
     return this;
   }
 
@@ -337,15 +366,16 @@ class Agent {
   private async selectTools(
     run: Run,
     history: types.LLMHistory[],
-    inputs: types.Inputs,
+    inputs: types.RunInputs,
+    options?: types.RunOptions,
   ) {
     const tools: types.ToolSchema[] = [
       ...this.tools,
-      ...(inputs.tools || []),
+      ...(options?.tools || []),
       ...(this.agent?.tools || []),
     ];
 
-    const max = Number(inputs.max_tools || 5);
+    const max = Number(options?.max_tools || 5);
 
     if (tools.length <= max) {
       return tools;
@@ -361,28 +391,19 @@ class Agent {
       (inputs.message || "") +
       `\n\nAvailable tools:\n${string_tools.join(".\n")}`;
 
-    const schema = {
-      type: "object",
-      properties: {
-        tools: {
-          description:
-            "The selected tools names that are relevant to the context",
-          type: "array",
-          items: {
-            type: "string",
-          },
-        },
-      },
-      required: ["tools"],
-    } as const satisfies JSONSchema;
+    const schema = createSchema(
+      z.object({
+        tools: z
+          .array(z.string())
+          .describe("The selected tools name that are relevant to the context"),
+      }),
+    );
 
-    type Output = FromSchema<typeof schema>;
-
-    const output = await run.jsonRun<Output>({
+    const output = await run.jsonRun<{ tools: string[] }>({
       inputs: { ...inputs, message },
       system_prompt: prompt,
       history,
-      schema: schema as any as types.ToolParameters,
+      schema: schema,
     });
 
     const selected_names = output.tools.slice(0, 4);
@@ -391,6 +412,38 @@ class Agent {
     );
 
     return wanted;
+  }
+
+  // setup tools added in the platform
+  private async buildInTools(in_tools: types.InTool[]) {
+    for (const tool of in_tools) {
+      if (tool.type === "agent") {
+        const agent = new Agent(tool.id, this.client);
+        await this.addAgentAsTool(agent);
+        continue;
+      }
+
+      const headers: Record<string, string> = {};
+      tool.headers.forEach((h) => {
+        headers[h.key] = h.value;
+      });
+
+      this.tools.push({
+        type: "api",
+        url: tool.url,
+        method: tool.method,
+        headers,
+        body: tool.body,
+        tool: {
+          type: "function",
+          function: {
+            name: tool.name,
+            description: tool.description,
+            parameters: tool.inputs,
+          },
+        },
+      });
+    }
   }
 
   public async asTool(): Promise<types.AgentToolSchema> {
@@ -407,42 +460,17 @@ class Agent {
       instructions: string,
     ) => {
       const res = await runFunc({
+        options: { session_id, run_id, save_history: false },
         inputs: {
-          session_id,
-          run_id,
           message: instructions,
-          save_history: false,
         },
       });
 
-      return res.response.content;
+      return res.content;
     };
 
-    const agent_tool: types.AgentToolSchema = {
-      type: "agent",
-      agent_id: this.id,
-      executor,
-      tool: {
-        type: "function",
-        function: {
-          name: agent.name,
-          description: `an AI agent called ${agent.name}. its task is: ${agent.description}`,
-          parameters: {
-            type: "object",
-            properties: {
-              instructions: {
-                type: "string",
-                description:
-                  "The instruction or task to give the agent. include all instructions to guide this agent",
-              },
-            },
-            required: ["instructions"],
-          },
-        },
-      },
-    };
-
-    return agent_tool;
+    const tool = agentAsTool(agent, executor);
+    return tool;
   }
 }
 

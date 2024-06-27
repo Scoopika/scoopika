@@ -1,10 +1,10 @@
 import * as types from "@scoopika/types";
-import Agent from "./agent";
-import Box from "./box";
-import Scoopika from "./scoopika";
+import Agent from "@/agent";
+import Box from "@/box";
+import Scoopika from "@/scoopika";
 import serverHooks from "./server_hooks";
-import setupAgents from "./setup_agents";
-import setupBoxes from "./setup_boxes";
+import setupAgents, { SetupAgentsFunc } from "../setup_agents";
+import setupBoxes, { SetupBoxesFunc } from "../setup_boxes";
 
 type Stream = (s: string) => any;
 
@@ -15,10 +15,10 @@ type Mappings = {
   ) => any;
 };
 
-class Container {
+class Endpoint {
   private scoopika: Scoopika;
-  setupAgents?: (s: Scoopika) => Promise<Agent[]>;
-  setupBoxes?: (s: Scoopika) => Promise<Box[]>;
+  setupAgents?: SetupAgentsFunc;
+  setupBoxes?: SetupBoxesFunc;
   onRequest?: (req: types.ServerRequest) => any;
   private caching: boolean;
   private latest_setup: number = 0;
@@ -35,8 +35,8 @@ class Container {
     caching_limit,
   }: {
     scoopika: Scoopika;
-    agents?: ((s: Scoopika) => Promise<Agent[]>) | string[];
-    boxes?: ((s: Scoopika) => Promise<Box[]>) | string[];
+    agents?: SetupAgentsFunc | string[];
+    boxes?: SetupBoxesFunc | string[];
     onRequest?: (req: types.ServerRequest) => any;
     caching?: boolean;
     caching_limit?: number;
@@ -153,8 +153,20 @@ class Container {
 
     await agent.run({
       inputs: payload.inputs,
+      options: payload.options,
       hooks: serverHooks(payload.hooks, stream),
     });
+  }
+
+  private async generateJSON(
+    stream: Stream,
+    payload: types.GenerateJSONRequest["payload"],
+  ) {
+    const agent = this.getAgent(payload.id);
+
+    const data = await agent.generateJSON(payload);
+    const message = this.streamMessage(data);
+    await stream(message);
   }
 
   private async handleBoxRun(
@@ -165,6 +177,7 @@ class Container {
 
     await box.run({
       inputs: payload.inputs,
+      options: payload.options,
       hooks: serverHooks(payload.hooks, stream),
     });
   }
@@ -185,6 +198,13 @@ class Container {
     const box = await this.getBox(payload.id).load();
     const message = this.streamMessage(box.box);
     await stream(message);
+  }
+
+  private async readAudio(
+    stream: Stream,
+    payload: types.ReadAudioRequest["payload"],
+  ) {
+    // REMOVE THIS LATER ;)
   }
 
   private async newSession(
@@ -219,8 +239,21 @@ class Container {
     stream: Stream,
     payload: types.GetSessionRunsRequest["payload"],
   ) {
-    const runs = await this.scoopika.getSessionRuns(payload.id);
+    const runs = await this.scoopika.getSessionMessages(payload.id);
     await stream(this.streamMessage({ runs }));
+  }
+
+  private async getRun(
+    stream: Stream,
+    payload: types.GetRunRequest["payload"],
+  ) {
+    const run = await this.scoopika.getRun(
+      payload.session,
+      payload.run_id,
+      payload.role,
+    );
+
+    await stream(this.streamMessage({ run }));
   }
 
   private streamMessage(data: any) {
@@ -241,7 +274,10 @@ class Container {
     delete_session: this.deleteSession.bind(this),
     list_user_sessions: this.listUserSessions.bind(this),
     get_session_runs: this.getSessionRuns.bind(this),
+    get_run: this.getRun.bind(this),
+    read_audio: this.readAudio.bind(this),
+    generate_json: this.generateJSON.bind(this),
   };
 }
 
-export default Container;
+export default Endpoint;

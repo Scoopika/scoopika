@@ -4,6 +4,7 @@ import setupInputs from "../lib/setup_model_inputs";
 import new_error from "../lib/error";
 import * as types from "@scoopika/types";
 import crypto from "node:crypto";
+import Hooks from "../hooks";
 
 const openai: types.LLMHost<OpenAI> = {
   model_role: "assistant",
@@ -11,15 +12,22 @@ const openai: types.LLMHost<OpenAI> = {
 
   helpers: {},
 
-  text: async (
-    run_id: string,
-    client: OpenAI,
-    stream: types.StreamFunc,
-    inputs: types.LLMFunctionBaseInputs,
-  ): Promise<types.LLMTextResponse> => {
+  text: async ({
+    run_id,
+    client,
+    hooks,
+    inputs,
+  }: {
+    run_id: string;
+    client: OpenAI;
+    hooks: types.HooksClass;
+    inputs: types.LLMFunctionBaseInputs;
+  }): Promise<types.LLMTextResponse> => {
     const completion_inputs = setupInputs(inputs);
     const options = JSON.parse(JSON.stringify(completion_inputs.options));
     delete completion_inputs.options;
+
+    // console.log(completion_inputs.messages.map(m => m.content));
 
     const response = await client.chat.completions.create({
       ...(completion_inputs as ChatCompletionCreateParamsStreaming),
@@ -33,11 +41,14 @@ const openai: types.LLMHost<OpenAI> = {
     for await (const chunk of response) {
       if (chunk.choices[0].delta.content) {
         response_message += chunk.choices[0].delta.content;
-        await stream({
+        const stream: types.StreamMessage = {
           type: "text",
           run_id,
           content: chunk.choices[0].delta.content,
-        });
+        };
+        hooks.executeHook("onStream", stream);
+        hooks.executeHook("onOutput", stream);
+        hooks.executeHook("onToken", chunk.choices[0].delta.content);
       }
 
       const calls = chunk.choices[0].delta.tool_calls;
@@ -95,9 +106,14 @@ const openai: types.LLMHost<OpenAI> = {
     );
 
     if (response_message.length === 0 && tool_calls.length === 0) {
-      return openai.text(run_id, client, stream, {
-        ...inputs,
-        tools: [],
+      return await openai.text({
+        run_id,
+        client,
+        hooks,
+        inputs: {
+          ...inputs,
+          tools: [],
+        },
       });
     }
 
@@ -113,11 +129,15 @@ const openai: types.LLMHost<OpenAI> = {
     client: OpenAI,
     inputs: types.LLMFunctionBaseInputs,
     schema: types.ToolParameters,
-    stream: types.StreamFunc,
   ): Promise<types.LLMJsonResponse> => {
-    const response = await openai.text("json_mode", client, () => {}, {
-      ...inputs,
-      response_format: { type: "json_object", schema },
+    const response = await openai.text({
+      run_id: "JSON_MODE",
+      client,
+      hooks: new Hooks(),
+      inputs: {
+        ...inputs,
+        response_format: { type: "json_object", schema },
+      },
     });
 
     if (!response.content || response.content.length < 1) {
@@ -142,46 +162,6 @@ const openai: types.LLMHost<OpenAI> = {
         ),
       );
     }
-  },
-
-  image: async (
-    run_id: string,
-    client: OpenAI,
-    stream: types.StreamFunc,
-    inputs: types.LLMFunctionImageInputs,
-  ): Promise<types.LLMImageResponse> => {
-    const response = await client.images.generate({
-      model: inputs.model,
-      prompt: inputs.prompt,
-      n: inputs.n,
-      size: inputs.size as any,
-    });
-
-    const images = response.data;
-    const images_url: string[] = [];
-
-    images.map((image) => {
-      const image_url = image.url;
-      const raw = image.b64_json;
-
-      if (!image_url && !raw) {
-        return;
-      }
-
-      if (typeof image_url === "string") {
-        images_url.push(image_url);
-      } else if (typeof raw === "string") {
-        images_url.push(raw);
-      }
-
-      stream({
-        type: "image",
-        content: image_url || raw || "",
-        run_id,
-      });
-    });
-
-    return { type: "image", content: images_url };
   },
 };
 

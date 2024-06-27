@@ -1,16 +1,18 @@
 import Box from "./box";
 import Scoopika from "./scoopika";
 
-function setupAgents(
-  boxes: string[] | ((scoopika: Scoopika) => Promise<Box[]>),
-): (scoopika: Scoopika) => Promise<Box[]> {
+export type SetupBoxesFunc = (scoopika: Scoopika) => Box[] | Promise<Box[]>;
+
+function setupBoxs(
+  boxes: string[] | SetupBoxesFunc,
+): (scoopika: Scoopika) => Box[] | Promise<Box[]> {
   if (typeof boxes === "function") {
     return boxes;
   }
 
   if (typeof boxes !== "object" || !Array.isArray(boxes)) {
     throw new Error(
-      "Invalid arg for setupAgents. has to be a function or string[]",
+      "Invalid arg for setupBoxs. has to be a function or string[]",
     );
   }
 
@@ -19,4 +21,4 @@ function setupAgents(
   };
 }
 
-export default setupAgents;
+export default setupBoxs;

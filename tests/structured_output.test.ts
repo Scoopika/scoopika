@@ -2,7 +2,7 @@ import { test, expect } from "vitest";
 import Agent from "../src/agent";
 import { AgentData } from "@scoopika/types";
 import Client from "../src/scoopika";
-import { FromSchema, JSONSchema } from "json-schema-to-ts";
+import { z } from "zod";
 
 const dummy_agent: AgentData = {
   id: "agent",
@@ -62,8 +62,8 @@ const dummy_agent: AgentData = {
 const client = new Client({
   token: "hello",
   store: "memory",
-  engines: {
-    fireworks: process.env["FIREWORKS_API"],
+  keys: {
+    fireworks: process.env["FIREWORKS_TOKEN"],
   },
 });
 
@@ -72,21 +72,13 @@ const agent = new Agent(dummy_agent.id, client, {
 });
 
 test("Running agent with structured output", async () => {
-  const schema = {
-    type: "object",
-    properties: {
-      name: {
-        type: "string",
-      },
-    },
-    required: ["name"],
-  } as const satisfies JSONSchema;
-
-  const run = await agent.structuredOutput<FromSchema<typeof schema>>({
+  const run = await agent.structuredOutput({
     inputs: {
       message: "My name is Kais",
     },
-    schema,
+    schema: z.object({
+      name: z.string().describe("The user name"),
+    }),
   });
 
   expect(typeof run.name).toBe("string");

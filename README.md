@@ -2,23 +2,9 @@
 
 [Documentation](https://docs.scoopika.com/packages/ts/scoopika) | [Github repo](https://github.com/scoopika/scoopika)
 
-This package is used to:
+This package is used to run AI agents that can see, talk, listen, take actions and collaborate together.
 
-1. Run AI agents and multi-agent boxes.
-
-2. Manage chat and history sessions.
-
-3. Equip agents with external tools & custom functions.
-
-4. Extract structured data using agents.
-
-5. Go crazy and pass agents as tools to other agents so they can call each other.
-
-6. Stream responses with built-in streaming hooks.
-
-7. Built-in support for vision (and soon sound and videos).
-
-and much more... check the [docs](https://docs.scoopika.com/packages/ts/scoopika) for more info.
+With built-in support for streaming, full type-safety and data validation.
 
 ## Usage
 
@@ -31,7 +17,7 @@ import { Scoopika, Agent } from "@scoopika/scoopika";
 
 const scoopika = new Scoopika({
   token: "YOUR_SCOOPIKA_TOKEN",
-  engines: {
+  keys: {
     openai: "OPENAI_KEY", // replace based on the providers your agents use in the platform
   },
 });

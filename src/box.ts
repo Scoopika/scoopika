@@ -4,24 +4,24 @@ import crypto from "node:crypto";
 import * as types from "@scoopika/types";
 import Model from "./model";
 import Agent from "./agent";
+import resolveInputs from "./lib/resolve_inputs";
+import Hooks from "./hooks";
+import madeToolToFunctionTool from "./lib/made_tool_to_function_tool";
+import { createTool } from "./create_tool";
+import { z } from "zod";
 
 class Box {
   id: string;
   client: Scoopika;
   box: types.BoxData | undefined = undefined;
   llm_clients: types.LLMClient[] = [];
+  hooks: Hooks;
 
   tools: types.ToolSchema[] = [];
   agents_tools: Record<string, types.ToolSchema[]> = {};
 
   mentions: boolean = true;
   running_agent: string = "NONE";
-
-  stream_listeners: types.BoxStreamFunc[] = [];
-  agent_selection_listeners: ((agent: types.AgentData) => any)[] = [];
-  finish_listeners: ((
-    response: { name: string; run: types.AgentResponse }[],
-  ) => any)[] = [];
 
   constructor(
     id: string,
@@ -36,13 +36,17 @@ class Box {
   ) {
     this.id = id;
     this.client = client;
+    this.hooks = new Hooks();
 
     if (client.loaded_boxes[id]) {
       this.box = client.loaded_boxes[id];
     }
 
     if (client.engines) {
-      this.llm_clients = buildClients(client.engines);
+      this.llm_clients = buildClients(
+        this.client.providers_urls,
+        client.engines,
+      );
     }
 
     if (!options) {
@@ -54,7 +58,7 @@ class Box {
     this.box = box;
 
     if (engines) {
-      this.llm_clients = buildClients(engines);
+      this.llm_clients = buildClients(this.client.providers_urls, engines);
     }
 
     if (system_prompt) {
@@ -81,41 +85,33 @@ class Box {
 
   async run({
     inputs,
+    options,
     hooks,
   }: {
-    inputs: types.Inputs;
+    inputs: types.RunInputs;
+    options?: types.RunOptions;
     hooks?: types.BoxHooks;
   }): Promise<{ name: string; run: types.AgentResponse }[]> {
     if (!this.box) {
       await this.load();
     }
 
+    options = options || {};
+    const hooksStore = new Hooks(this.hooks.hooks);
+    hooksStore.addRunHooks(hooks || {});
+
     const session_id: string =
-      inputs.session_id || "session_" + crypto.randomUUID();
-    const run_id = inputs.run_id || "run_" + crypto.randomUUID();
+      options?.session_id || "session_" + crypto.randomUUID();
+    const run_id = options?.run_id || "run_" + crypto.randomUUID();
 
     const box = this.box as types.BoxData;
     const session = await this.client.getSession(session_id);
-    const run_listeners: ((s: types.StreamMessage) => any)[] = [];
 
-    if (hooks?.onStream) {
-      run_listeners.push(hooks.onStream);
+    if (typeof options?.run_id !== "string") {
+      options.run_id = run_id;
     }
 
-    if (hooks?.onToken) {
-      run_listeners.push((s: types.StreamMessage) => {
-        if (hooks.onToken) {
-          hooks.onToken(s.content);
-        }
-      });
-    }
-
-    const streamFunc = this.getStreamFunc(run_listeners);
-
-    if (typeof inputs.run_id !== "string") {
-      inputs.run_id = run_id;
-    }
-
+    hooksStore.executeHook("onStart", { run_id, session_id });
     const history = this.setupHistory(
       session,
       inputs,
@@ -134,16 +130,11 @@ class Box {
       )[0];
 
       if (!agentData) {
-        // TODO: Add logging to this
+        console.error(`Agent ${selected.name} could not be loaded.. skipping!`);
         continue;
       }
 
-      this.agent_selection_listeners.forEach((listener) => listener(agentData));
-
-      if (hooks?.onSelectAgent) {
-        hooks.onSelectAgent(agentData);
-      }
-
+      hooksStore.executeHook("onSelectAgent", agentData);
       const agent = new Agent(agentData.id, this.client, {
         agent: {
           ...agentData,
@@ -156,56 +147,44 @@ class Box {
         },
       });
 
-      agent.onStream((stream: types.StreamMessage) => {
-        if (stream.type !== "text") return;
-        streamFunc({
-          run_id: stream.run_id,
-          type: stream.type,
-          agent_name: this.running_agent,
-          content: stream.content,
-        });
-      });
-
       this.running_agent = agentData.name;
       const run = await agent.run({
         inputs: {
           ...inputs,
           message: selected.instructions,
         },
+        hooksStore,
+        hooks,
       });
       responses.push({ name: agentData.name, run });
-
-      if (hooks?.onAgentResponse) {
-        hooks.onAgentResponse({ name: agentData.name, response: run });
-      }
     }
 
-    this.finish_listeners.forEach((listener) => listener(responses));
-
-    if (hooks?.onBoxFinish) {
-      hooks.onBoxFinish(responses);
-    }
+    hooksStore.executeHook("onBoxFinish", responses);
 
     return responses;
   }
 
   async selectAgents(
-    inputs: types.Inputs,
+    inputs: types.RunInputs,
     history: types.LLMHistory[],
   ): Promise<{ name: string; instructions: string }[]> {
-    if (!inputs.message) {
+    const { new_inputs } = await resolveInputs(this.client, inputs);
+
+    if (!new_inputs.message) {
       throw new Error("Inputs message is required in AI Boxes");
     }
 
-    if (this.mentions && inputs.message.startsWith("@")) {
+    if (this.mentions && new_inputs.message.startsWith("@")) {
       const wanted_agents = this.box?.agents.filter(
         (agent) =>
           agent.name.toLowerCase() ===
-          inputs.message?.split(" ")[0].replace("@", "").toLowerCase(),
+          new_inputs.message?.split(" ")[0].replace("@", "").toLowerCase(),
       );
 
       if (wanted_agents && wanted_agents?.length > 0) {
-        return [{ name: wanted_agents[0].name, instructions: inputs.message }];
+        return [
+          { name: wanted_agents[0].name, instructions: new_inputs.message },
+        ];
       }
     }
 
@@ -224,10 +203,10 @@ class Box {
       });
     }
 
-    if (inputs.message) {
+    if (new_inputs.message) {
       messages.push({
         role: "user",
-        content: `Instructions:\n${inputs.message}`,
+        content: `Instructions:\n${new_inputs.message}`,
       });
     }
 
@@ -247,11 +226,9 @@ class Box {
     const run = await modelRunner.baseRun({
       run_id: "BOX",
       session_id: "DUMMY_SESSION_" + crypto.randomUUID(),
-      stream: () => {},
-      onToolCall: () => {},
-      onToolRes: () => {},
       inputs: LLM_inputs,
       execute_tools: false,
+      hooks: new Hooks(),
     });
 
     if (!run.tool_calls || run.tool_calls.length < 1) {
@@ -262,7 +239,7 @@ class Box {
       return [
         {
           name: run.tool_calls[0].function.name,
-          instructions: inputs.message,
+          instructions: new_inputs.message,
         },
       ];
     }
@@ -273,7 +250,7 @@ class Box {
       const args = JSON.parse(call.function.arguments);
 
       if (!args.instructions || typeof args.instructions !== "boolean") {
-        args.instructions = inputs.message;
+        args.instructions = new_inputs.message;
       }
 
       selected_agents.push({
@@ -300,7 +277,7 @@ class Box {
 
   setupHistory(
     session: types.StoreSession,
-    inputs: types.Inputs,
+    inputs: types.RunInputs,
     history: types.LLMHistory[],
   ): types.LLMHistory[] {
     const newHistory: types.LLMHistory[] = JSON.parse(JSON.stringify(history));
@@ -349,60 +326,37 @@ class Box {
     return tools;
   }
 
-  getStreamFunc(run_listeners?: types.BoxStreamFunc[]): types.BoxStreamFunc {
-    const listeners = [...this.stream_listeners, ...(run_listeners || [])];
+  public addGlobalTool<PARAMETERS extends z.ZodTypeAny, RESULT = any>(
+    tool?: types.CoreTool<PARAMETERS, RESULT>,
+  ) {
+    if (!tool) return;
 
-    return (message: types.BoxStream) => {
-      listeners.map((listener) => listener(message));
-    };
-  }
+    const built_tool = createTool(tool);
+    this.tools = [
+      ...this.tools.filter((t) => t.tool.function.name !== tool.name),
+      madeToolToFunctionTool(built_tool),
+    ];
 
-  onStream(func: types.BoxStreamFunc) {
-    this.stream_listeners.push(func);
     return this;
   }
 
-  onSelectAgent(func: (agent: types.AgentData) => any) {
-    this.agent_selection_listeners.push(func);
-  }
-
-  onFinish(
-    func: (response: { name: string; run: types.AgentResponse }[]) => any,
+  addTool<PARAMETERS extends z.ZodTypeAny, RESULT = any>(
+    agent: string,
+    tool?: types.CoreTool<PARAMETERS, RESULT>,
   ) {
-    this.finish_listeners.push(func);
-  }
+    if (!tool) return;
 
-  addGlobalTool<Data = any>(
-    func: (args: Data) => any,
-    tool: types.ToolFunction,
-  ) {
-    this.tools.push({
-      type: "function",
-      executor: func,
-      tool: {
-        type: "function",
-        function: tool,
-      },
-    });
-  }
-
-  addTool<Data = any>(
-    agent_name: string,
-    func: (args: Data) => any,
-    tool: types.ToolFunction,
-  ) {
-    if (!this.agents_tools[agent_name.toLowerCase()]) {
-      this.agents_tools[agent_name.toLowerCase()] = [];
+    if (!this.agents_tools[agent.toLowerCase()]) {
+      this.agents_tools[agent.toLowerCase()] = [];
     }
 
-    this.agents_tools[agent_name.toLowerCase()].push({
-      type: "function",
-      executor: func,
-      tool: {
-        type: "function",
-        function: tool,
-      },
-    });
+    const builtTool = createTool(tool);
+    this.agents_tools[agent] = [
+      ...this.agents_tools[agent],
+      madeToolToFunctionTool(builtTool),
+    ];
+
+    return this;
   }
 
   public async addAgentAsTool(agent: Agent) {

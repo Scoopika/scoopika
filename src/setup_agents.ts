@@ -1,9 +1,13 @@
 import Agent from "./agent";
 import Scoopika from "./scoopika";
 
+export type SetupAgentsFunc = (
+  scoopika: Scoopika,
+) => Agent[] | Promise<Agent[]>;
+
 function setupAgents(
-  agents: string[] | ((scoopika: Scoopika) => Promise<Agent[]>),
-): (scoopika: Scoopika) => Promise<Agent[]> {
+  agents: string[] | SetupAgentsFunc,
+): (scoopika: Scoopika) => Agent[] | Promise<Agent[]> {
   if (typeof agents === "function") {
     return agents;
   }
