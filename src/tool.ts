@@ -4,7 +4,7 @@ import {
   ApiToolSchema,
   AgentToolSchema,
 } from "@scoopika/types";
-import validate, { validateObject } from "./lib/validate";
+import validate from "./lib/validate";
 import Hooks from "./hooks";
 
 class ToolRun {
@@ -49,18 +49,13 @@ class ToolRun {
 
   async execute(): Promise<any> {
     const parameters = this.tool.tool.function.parameters;
-    const validated_args = validateObject(
-      parameters.properties,
-      parameters.required || [],
-      this.args,
-    );
+    const validated_args = validate(parameters, this.args);
 
     if (!validated_args.success) {
-      return `ERROR: ${validated_args.error}`;
+      return JSON.stringify({
+        errors: validated_args.errors,
+      });
     }
-
-    validate(parameters, validated_args.data);
-    this.args = validated_args.data;
 
     if (this.tool.type === "function") {
       return await this.executeFunction(this.tool);
@@ -78,16 +73,10 @@ class ToolRun {
       throw new Error("ERROR: Unknown tool type");
     }
 
-    if (this.hooks.hooks.onClientSideAction?.length || 0 < 1) {
-      throw new Error(
-        "Needed to execute a tool on the client side but no hooks are found",
-      );
-    }
-
     await this.hooks.executeHook("onClientSideAction", {
       id: this.id,
       tool_name: this.tool.tool.function.name,
-      arguments: validated_args.data,
+      arguments: this.args,
     });
 
     return `Executed the action ${this.tool.tool.function.name} successfully, keep the conversation going and inform the user that the action was executed`;

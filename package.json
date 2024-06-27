@@ -1,6 +1,6 @@
 {
   "name": "@scoopika/scoopika",
-  "version": "1.4.5",
+  "version": "1.5.2",
   "description": "Create AI agents that can see, hear, speak, take actions, and collaborate together. with long-term memory, custom external tools & APIs, and custom knowledge sources. With real-time streaming hooks, data validation, and smart errors recovery",
   "main": "./index.js",
   "types": "./index.d.ts",
@@ -20,7 +20,7 @@
     "Persistent LLMs history"
   ],
   "devDependencies": {
-    "@scoopika/types": "^2.2.1",
+    "@scoopika/types": "^2.2.8",
     "@types/node": "^20.12.7",
     "@vitest/coverage-v8": "^1.5.0",
     "dotenv": "^16.4.5",
@@ -29,10 +29,9 @@
     "vitest": "^1.5.0"
   },
   "dependencies": {
-    "@google/generative-ai": "^0.7.0",
     "ajv": "^8.12.0",
-    "json-schema-to-ts": "^3.1.0",
     "openai": "^4.33.0",
-    "rfc4648": "^1.5.3"
+    "zod": "^3.23.8",
+    "zod-to-json-schema": "^3.23.1"
   }
 }

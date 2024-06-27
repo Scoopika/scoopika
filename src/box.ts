@@ -6,6 +6,9 @@ import Model from "./model";
 import Agent from "./agent";
 import resolveInputs from "./lib/resolve_inputs";
 import Hooks from "./hooks";
+import madeToolToFunctionTool from "./lib/made_tool_to_function_tool";
+import { createTool } from "./create_tool";
+import { z } from "zod";
 
 class Box {
   id: string;
@@ -323,37 +326,37 @@ class Box {
     return tools;
   }
 
-  addGlobalTool<Data = any>(
-    func: (args: Data) => any,
-    tool: types.ToolFunction,
+  public addGlobalTool<PARAMETERS extends z.ZodTypeAny, RESULT = any>(
+    tool?: types.CoreTool<PARAMETERS, RESULT>,
   ) {
-    this.tools.push({
-      type: "function",
-      executor: func,
-      tool: {
-        type: "function",
-        function: tool,
-      },
-    });
+    if (!tool) return;
+
+    const built_tool = createTool(tool);
+    this.tools = [
+      ...this.tools.filter((t) => t.tool.function.name !== tool.name),
+      madeToolToFunctionTool(built_tool),
+    ];
+
+    return this;
   }
 
-  addTool<Data = any>(
-    agent_name: string,
-    func: (args: Data) => any,
-    tool: types.ToolFunction,
+  addTool<PARAMETERS extends z.ZodTypeAny, RESULT = any>(
+    agent: string,
+    tool?: types.CoreTool<PARAMETERS, RESULT>,
   ) {
-    if (!this.agents_tools[agent_name.toLowerCase()]) {
-      this.agents_tools[agent_name.toLowerCase()] = [];
+    if (!tool) return;
+
+    if (!this.agents_tools[agent.toLowerCase()]) {
+      this.agents_tools[agent.toLowerCase()] = [];
     }
 
-    this.agents_tools[agent_name.toLowerCase()].push({
-      type: "function",
-      executor: func,
-      tool: {
-        type: "function",
-        function: tool,
-      },
-    });
+    const builtTool = createTool(tool);
+    this.agents_tools[agent] = [
+      ...this.agents_tools[agent],
+      madeToolToFunctionTool(builtTool),
+    ];
+
+    return this;
   }
 
   public async addAgentAsTool(agent: Agent) {

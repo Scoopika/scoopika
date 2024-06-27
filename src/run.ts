@@ -1,8 +1,7 @@
 import Model from "./model";
 import new_error from "./lib/error";
 import * as types from "@scoopika/types";
-import validate, { validateObject } from "./lib/validate";
-import cleanToolParams from "./lib/clean_tool_params";
+import validate from "./lib/validate";
 import buildMessage from "./lib/build_message";
 import Hooks from "./hooks";
 import Scoopika from "./scoopika";
@@ -87,7 +86,7 @@ class Run {
         type: "function",
         function: {
           ...t.tool.function,
-          parameters: cleanToolParams(t.tool.function.parameters),
+          parameters: t.tool.function.parameters,
         },
       })),
     };
@@ -189,21 +188,16 @@ class Run {
           schema,
         },
       },
-      cleanToolParams(schema),
+      schema,
     );
 
-    const validated = validateObject(
-      schema.properties,
-      schema.required || [],
-      response.content,
-    );
+    const validated = validate(schema, response.content);
 
     if (!validated.success) {
       throw new Error("Invalid LLM structured output");
     }
 
-    validate(schema, validated.data);
-    return validated.data as Data;
+    return response.content as Data;
   }
 }
 

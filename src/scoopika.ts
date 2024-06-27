@@ -35,13 +35,13 @@ class Scoopika {
   constructor({
     token,
     store,
-    engines,
+    keys,
     host_audio,
     beta_allow_knowledge,
   }: {
     token?: string;
     store?: string | InMemoryStore | RemoteStore;
-    engines?: types.RawEngines;
+    keys?: types.RawEngines;
     host_audio?: boolean;
     beta_allow_knowledge?: boolean;
   } = {}) {
@@ -65,7 +65,7 @@ class Scoopika {
     this.stateStore = new StateStore();
     this.memoryStore = new InMemoryStore();
 
-    this.engines = engines || {};
+    this.engines = keys || {};
 
     if (!store) {
       store = new InMemoryStore();
@@ -139,6 +139,13 @@ class Scoopika {
   public async listUserSessions(user_id: string): Promise<string[]> {
     const sessions = await this.store.getUserSessions(user_id);
     return sessions;
+  }
+
+  public async getSessionRuns(
+    session: types.StoreSession | string,
+  ): Promise<types.RunHistory[]> {
+    const runs = await this.store.getRuns(session);
+    return runs.sort((a, b) => a.at - b.at);
   }
 
   public async getSessionMessages(

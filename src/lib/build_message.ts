@@ -1,4 +1,4 @@
-import { Inputs, RunInputs, UserContentHistory } from "@scoopika/types";
+import { RunInputs, UserContentHistory } from "@scoopika/types";
 
 function buildMessage(inputs: RunInputs): UserContentHistory["content"] {
   if (!inputs.images || inputs.images.length < 1) {

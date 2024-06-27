@@ -2,14 +2,14 @@ import Agent from "./agent";
 import InMemoryStore from "./store";
 import Scoopika from "./scoopika";
 import Box from "./box";
-import serverStream from "./server_stream";
-import serverHooks from "./server_hooks";
-import serverRequestBody from "./server_request";
+import serverStream from "./server/server_stream";
+import serverHooks from "./server/server_hooks";
+import serverRequestBody from "./server/server_request";
 import setupAgents from "./setup_agents";
 import setupBoxes from "./setup_boxes";
-import Endpoint from "./endpoint";
-import { JSONSchema, FromSchema } from "json-schema-to-ts";
-import { createToolSchema } from "./create_tool";
+import Endpoint from "./server/endpoint";
+import { createTool } from "./create_tool";
+import { createSchema } from "./create_schema";
 import readAudio from "./lib/read_audio";
 
 export {
@@ -23,8 +23,7 @@ export {
   setupAgents,
   setupBoxes,
   Endpoint,
-  JSONSchema,
-  FromSchema,
-  createToolSchema,
+  createSchema,
+  createTool,
   readAudio,
 };

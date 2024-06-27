@@ -1,10 +1,10 @@
 import * as types from "@scoopika/types";
-import Agent from "./agent";
-import Box from "./box";
-import Scoopika from "./scoopika";
+import Agent from "@/agent";
+import Box from "@/box";
+import Scoopika from "@/scoopika";
 import serverHooks from "./server_hooks";
-import setupAgents from "./setup_agents";
-import setupBoxes from "./setup_boxes";
+import setupAgents, { SetupAgentsFunc } from "../setup_agents";
+import setupBoxes, { SetupBoxesFunc } from "../setup_boxes";
 
 type Stream = (s: string) => any;
 
@@ -17,16 +17,14 @@ type Mappings = {
 
 class Endpoint {
   private scoopika: Scoopika;
-  setupAgents?: (s: Scoopika) => Promise<Agent[]>;
-  setupBoxes?: (s: Scoopika) => Promise<Box[]>;
+  setupAgents?: SetupAgentsFunc;
+  setupBoxes?: SetupBoxesFunc;
   onRequest?: (req: types.ServerRequest) => any;
   private caching: boolean;
   private latest_setup: number = 0;
   private agents: Agent[] = [];
   private boxes: Box[] = [];
   private caching_limit: number = 1000000;
-  private cache_audio: boolean = true;
-  private cached_audio_calls: Record<string, string> = {};
 
   constructor({
     scoopika,
@@ -35,24 +33,18 @@ class Endpoint {
     onRequest,
     caching,
     caching_limit,
-    cache_audio,
   }: {
     scoopika: Scoopika;
-    agents?: ((s: Scoopika) => Promise<Agent[]>) | string[];
-    boxes?: ((s: Scoopika) => Promise<Box[]>) | string[];
+    agents?: SetupAgentsFunc | string[];
+    boxes?: SetupBoxesFunc | string[];
     onRequest?: (req: types.ServerRequest) => any;
     caching?: boolean;
     caching_limit?: number;
-    cache_audio?: boolean;
   }) {
     this.scoopika = scoopika;
     this.setupAgents = setupAgents(agents || []);
     this.setupBoxes = setupBoxes(boxes || []);
     this.onRequest = onRequest;
-
-    if (typeof cache_audio === "boolean") {
-      this.cache_audio = cache_audio;
-    }
 
     if (typeof caching_limit === "number") {
       this.caching_limit = caching_limit;
@@ -166,6 +158,17 @@ class Endpoint {
     });
   }
 
+  private async generateJSON(
+    stream: Stream,
+    payload: types.GenerateJSONRequest["payload"],
+  ) {
+    const agent = this.getAgent(payload.id);
+
+    const data = await agent.generateJSON(payload);
+    const message = this.streamMessage(data);
+    await stream(message);
+  }
+
   private async handleBoxRun(
     stream: Stream,
     payload: types.RunBoxRequest["payload"],
@@ -273,6 +276,7 @@ class Endpoint {
     get_session_runs: this.getSessionRuns.bind(this),
     get_run: this.getRun.bind(this),
     read_audio: this.readAudio.bind(this),
+    generate_json: this.generateJSON.bind(this),
   };
 }
 

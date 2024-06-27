@@ -28,8 +28,9 @@ export default function buildClients(
       const url = base_urls[key];
 
       if (!url) {
-        throw new Error(
-          `${key} is not supported. If using an extended provider make sure to extends it usin 'scoopika.extendProviders. or contact us so we support this provider.'`,
+        console.error(
+          `${key} is not supported. If using an extended provider make sure to extends it usin 'scoopika.extendProviders.
+          or contact us so we support this provider.'`,
         );
       }
 

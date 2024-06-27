@@ -13,12 +13,6 @@ export default async function resolveInputs(
   const audios = inputs.audio;
   const audio_urls: RemoteAudio[] = [];
 
-  if (!inputs.message && (audios?.length || 0) > 0) {
-    message += "\nCurrent user request:\n" + inputs.message;
-  } else {
-    message += "\n" + inputs.message;
-  }
-
   for await (const a of audios || []) {
     const { text, url } = await readAudio(scoopika, a);
     audio_urls.push({ type: "remote", path: url });
@@ -27,11 +21,11 @@ export default async function resolveInputs(
 
   context_message = message;
   for (const item of data || []) {
-    message += item.description + ":\n" + item.value;
+    message = item.description + ":\n" + item.value + "\n" + message;
   }
 
   for (const item of (data || []).filter((d) => d.scope === "session")) {
-    context_message += item.description + ":\n" + item.value;
+    context_message = item.description + ":\n" + item.value + "\n" + message;
   }
 
   if (message.length < 1) {

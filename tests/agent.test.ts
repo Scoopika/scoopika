@@ -7,6 +7,7 @@ const dummy_agent: AgentData = {
   id: "agent",
   name: "Agento",
   description: "an agent that help make a plan for learning new things",
+  tools: [],
   prompts: [
     {
       id: "prompt-1",
@@ -26,7 +27,7 @@ const dummy_agent: AgentData = {
 test("Running agent with tools and history", async () => {
   const client = new Client({
     store: "memory",
-    engines: {
+    keys: {
       fireworks: process.env["FIREWORKS_TOKEN"],
     },
   });
@@ -69,6 +70,7 @@ test("Running agent with tools and history", async () => {
         {
           description: "Latest search result",
           value: "Eagles - Hotel California",
+          scope: "run",
         },
       ],
     },

@@ -5,9 +5,14 @@ import * as types from "@scoopika/types";
 import Scoopika from "./scoopika";
 import Run from "./run";
 import mixRuns from "./lib/mix_runs";
-import { FromSchema, JSONSchema } from "json-schema-to-ts";
 import Hooks from "./hooks";
 import AudioStore from "./audio_store";
+import agentAsTool from "./lib/agent_as_tool";
+import { createSchema } from "./create_schema";
+import { z } from "zod";
+import { createTool } from "./create_tool";
+import madeToolToFunctionTool from "./lib/made_tool_to_function_tool";
+import { JSONSchema } from "openai/lib/jsonschema";
 
 class Agent {
   public llm_clients: types.LLMClient[] = [];
@@ -119,8 +124,8 @@ class Agent {
 
     const agent = this.agent as types.AgentData;
     const session_id: string =
-      options?.session_id || "session_" + crypto.randomUUID();
-    const run_id = options?.run_id || "run_" + crypto.randomUUID();
+      options?.session_id ?? "session_" + crypto.randomUUID();
+    const run_id = options?.run_id ?? "run_" + crypto.randomUUID();
     const original_inputs: types.Inputs = JSON.parse(JSON.stringify(inputs));
 
     if (!hooksStore) {
@@ -155,7 +160,7 @@ class Agent {
     );
 
     if (options?.save_history !== false) {
-      this.client.pushRuns(session, [
+      await this.client.pushRuns(session, [
         {
           at: start,
           role: "user",
@@ -232,24 +237,21 @@ class Agent {
     return res;
   }
 
-  public async structuredOutput<Data = Record<string, any>>({
+  public async generateJSON({
     inputs,
     options,
     schema,
     system_prompt,
   }: {
     inputs: types.RunInputs;
-    options: types.RunOptions;
-    schema: types.ToolParameters | JSONSchema;
+    options?: types.RunOptions;
+    schema: JSONSchema;
     system_prompt?: string;
-  }): Promise<Data> {
+  }) {
     await this.loadAgent();
 
     const session_id: string =
-      typeof options?.session_id === "string"
-        ? options?.session_id
-        : "session_" + crypto.randomUUID();
-
+      options?.session_id ?? "session_" + crypto.randomUUID();
     const agent = this.agent as types.AgentData;
     const session = await this.client.getSession(session_id);
     const { new_inputs } = await resolveInputs(this.client, inputs);
@@ -270,14 +272,63 @@ class Agent {
       hooks: new Hooks(),
     });
 
-    const output = await modelRun.jsonRun<Data>({
+    const output = await modelRun.jsonRun<any>({
       inputs: new_inputs,
-      schema: schema as types.ToolParameters,
+      schema,
       history,
       system_prompt,
     });
 
     return output;
+  }
+
+  public async structuredOutput<
+    SCHEMA extends z.ZodTypeAny = any,
+    DATA = z.infer<SCHEMA>,
+  >({
+    inputs,
+    options,
+    schema,
+    system_prompt,
+  }: {
+    inputs: types.RunInputs;
+    options?: types.RunOptions;
+    schema: SCHEMA;
+    system_prompt?: string;
+  }): Promise<DATA> {
+    await this.loadAgent();
+
+    const session_id: string =
+      options?.session_id ?? "session_" + crypto.randomUUID();
+    const agent = this.agent as types.AgentData;
+    const session = await this.client.getSession(session_id);
+    const { new_inputs } = await resolveInputs(this.client, inputs);
+
+    const history: types.LLMHistory[] = await mixRuns(
+      this.client,
+      "STRUCTURED",
+      session,
+      await this.client.getSessionMessages(session),
+    );
+
+    const modelRun = new Run({
+      scoopika: this.client,
+      session,
+      clients: this.llm_clients,
+      agent,
+      tools: [...this.tools, ...(agent.tools || []), ...(options?.tools || [])],
+      hooks: new Hooks(),
+    });
+
+    const json_schema = createSchema(schema);
+    const output = await modelRun.jsonRun<DATA>({
+      inputs: new_inputs,
+      schema: json_schema,
+      history,
+      system_prompt,
+    });
+
+    return output as DATA;
   }
 
   public async info<K extends keyof types.AgentData>(
@@ -293,19 +344,15 @@ class Agent {
     return this.agent[key];
   }
 
-  public addTool<Data = any>(
-    func: (args: Data) => any,
-    tool: types.ToolFunction,
+  public addTool<PARAMETERS extends z.ZodTypeAny, RESULT = any>(
+    tool?: types.CoreTool<PARAMETERS, RESULT>,
   ) {
-    this.tools.push({
-      type: "function",
-      executor: func,
-      tool: {
-        type: "function",
-        function: tool,
-      },
-    });
-
+    if (!tool) return;
+    const built_tool = createTool(tool);
+    this.tools = [
+      ...this.tools.filter((t) => t.tool.function.name !== tool.name),
+      madeToolToFunctionTool(built_tool),
+    ];
     return this;
   }
 
@@ -344,28 +391,19 @@ class Agent {
       (inputs.message || "") +
       `\n\nAvailable tools:\n${string_tools.join(".\n")}`;
 
-    const schema = {
-      type: "object",
-      properties: {
-        tools: {
-          description:
-            "The selected tools names that are relevant to the context",
-          type: "array",
-          items: {
-            type: "string",
-          },
-        },
-      },
-      required: ["tools"],
-    } as const satisfies JSONSchema;
+    const schema = createSchema(
+      z.object({
+        tools: z
+          .array(z.string())
+          .describe("The selected tools name that are relevant to the context"),
+      }),
+    );
 
-    type Output = FromSchema<typeof schema>;
-
-    const output = await run.jsonRun<Output>({
+    const output = await run.jsonRun<{ tools: string[] }>({
       inputs: { ...inputs, message },
       system_prompt: prompt,
       history,
-      schema: schema as any as types.ToolParameters,
+      schema: schema,
     });
 
     const selected_names = output.tools.slice(0, 4);
@@ -431,31 +469,8 @@ class Agent {
       return res.content;
     };
 
-    const agent_tool: types.AgentToolSchema = {
-      type: "agent",
-      agent_id: this.id,
-      executor,
-      tool: {
-        type: "function",
-        function: {
-          name: agent.name,
-          description: `an AI agent called ${agent.name}. its task is: ${agent.description}`,
-          parameters: {
-            type: "object",
-            properties: {
-              instructions: {
-                type: "string",
-                description:
-                  "The instruction or task to give the agent. include all instructions to guide this agent",
-              },
-            },
-            required: ["instructions"],
-          },
-        },
-      },
-    };
-
-    return agent_tool;
+    const tool = agentAsTool(agent, executor);
+    return tool;
   }
 }
 
