@@ -115,10 +115,10 @@ class ToolRun {
   }
 
   private replaceVariables(template: string, variables: Record<string, any>) {
-    return template.replace(/\${(.*?)}/g, (_, v) => variables[v] || "");
+    return template.replace(/\${(.*?)}/g, (_, v) => variables[v] || undefined);
   }
 
-  async executeApi(tool: ApiToolSchema) {
+  async executeApi(tool: ApiToolSchema): Promise<string> {
     const inputs: {
       headers: typeof tool.headers;
       body?: string;
@@ -126,9 +126,7 @@ class ToolRun {
       headers: tool.headers,
     };
 
-    const has_body = typeof tool.body === "string" && tool.body.length > 0;
-
-    if (tool.method.toLowerCase() !== "get" && has_body) {
+    if (tool.method.toLowerCase() !== "get") {
       inputs.body = this.replaceVariables(tool.body || "", this.args);
     }
 
@@ -138,13 +136,8 @@ class ToolRun {
         method: tool.method.toUpperCase(),
       });
 
-      try {
-        const data = await response.json();
-        return { result: this.toolResult(data) };
-      } catch {
-        const data = await response.text();
-        return { result: this.toolResult(data) };
-      }
+      const data = await response.text();
+      return data;
     } catch (err: any) {
       console.error(err);
       return `System faced an error executing the tool: ${err.message || "Unexpected error!"}`;

@@ -428,7 +428,9 @@ class Agent {
         headers[h.key] = h.value;
       });
 
-      this.tools.push({
+      this.tools = [
+        ...(this.tools.filter(t => t.tool.function.name !== tool.name) || []),
+        {
         type: "api",
         url: tool.url,
         method: tool.method,
@@ -442,7 +444,7 @@ class Agent {
             parameters: tool.inputs,
           },
         },
-      });
+      }];
     }
   }
 

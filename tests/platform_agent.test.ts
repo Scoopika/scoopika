@@ -8,7 +8,7 @@ if (!id) {
 }
 
 const scoopika = new Scoopika({
-  engines: {
+  keys: {
     fireworks: process.env.FIREWORKS_TOKEN,
   },
 });
@@ -23,9 +23,11 @@ test("Load from the platform", async () => {
 test("Run agent from the platform", async () => {
   const response = await agent.run({
     inputs: {
-      message: "Hello!",
+      message: "Search for the user given the query 'Kais'. send 'Kais' as the query to the tool",
     },
   });
+
+  console.log(response.tools_calls[0]);
 
   expect(typeof response.content).toBe("string");
 });
