@@ -1,5 +1,4 @@
 import Ajv from "ajv";
-import new_error from "./error";
 import { JSONSchema } from "openai/lib/jsonschema";
 
 export default function validate(
@@ -13,6 +12,13 @@ export default function validate(
       success: false;
       errors: string[];
     } {
+  if (schema.properties) {
+    for (const key of Object.keys(schema.properties)) {
+      const prop = schema.properties[key] as any;
+      delete prop["required"];
+    }
+  }
+
   const ajv = new Ajv();
   const validation = ajv.validate(schema, data);
 

@@ -27,8 +27,6 @@ const openai: types.LLMHost<OpenAI> = {
     const options = JSON.parse(JSON.stringify(completion_inputs.options));
     delete completion_inputs.options;
 
-    // console.log(completion_inputs.messages.map(m => m.content));
-
     const response = await client.chat.completions.create({
       ...(completion_inputs as ChatCompletionCreateParamsStreaming),
       stream: true,

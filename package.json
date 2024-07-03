@@ -1,6 +1,6 @@
 {
   "name": "@scoopika/scoopika",
-  "version": "1.5.2",
+  "version": "1.5.4",
   "description": "Create AI agents that can see, hear, speak, take actions, and collaborate together. with long-term memory, custom external tools & APIs, and custom knowledge sources. With real-time streaming hooks, data validation, and smart errors recovery",
   "main": "./index.js",
   "types": "./index.d.ts",
