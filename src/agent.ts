@@ -148,14 +148,12 @@ class Agent {
       this.client,
       inputs,
     );
+
     const start = Date.now();
     const session = await this.client.getSession(session_id);
 
     hooksStore.executeHook("onStart", { run_id, session_id });
     const history: types.LLMHistory[] = await mixRuns(
-      this.client,
-      agent.id,
-      session,
       await this.client.getSessionMessages(session),
     );
 
@@ -257,9 +255,6 @@ class Agent {
     const { new_inputs } = await resolveInputs(this.client, inputs);
 
     const history: types.LLMHistory[] = await mixRuns(
-      this.client,
-      "STRUCTURED",
-      session,
       await this.client.getSessionMessages(session),
     );
 
@@ -305,9 +300,6 @@ class Agent {
     const { new_inputs } = await resolveInputs(this.client, inputs);
 
     const history: types.LLMHistory[] = await mixRuns(
-      this.client,
-      "STRUCTURED",
-      session,
       await this.client.getSessionMessages(session),
     );
 
@@ -429,22 +421,23 @@ class Agent {
       });
 
       this.tools = [
-        ...(this.tools.filter(t => t.tool.function.name !== tool.name) || []),
+        ...(this.tools.filter((t) => t.tool.function.name !== tool.name) || []),
         {
-        type: "api",
-        url: tool.url,
-        method: tool.method,
-        headers,
-        body: tool.body,
-        tool: {
-          type: "function",
-          function: {
-            name: tool.name,
-            description: tool.description,
-            parameters: tool.inputs,
+          type: "api",
+          url: tool.url,
+          method: tool.method,
+          headers,
+          body: tool.body,
+          tool: {
+            type: "function",
+            function: {
+              name: tool.name,
+              description: tool.description,
+              parameters: tool.inputs,
+            },
           },
         },
-      }];
+      ];
     }
   }
 

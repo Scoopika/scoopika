@@ -23,7 +23,8 @@ test("Load from the platform", async () => {
 test("Run agent from the platform", async () => {
   const response = await agent.run({
     inputs: {
-      message: "Search for the user given the query 'Kais'. send 'Kais' as the query to the tool",
+      message:
+        "Search for the user given the query 'Kais'. send 'Kais' as the query to the tool",
     },
   });
 
