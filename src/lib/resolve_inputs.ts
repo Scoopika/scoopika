@@ -6,7 +6,7 @@ export default async function resolveInputs(
   scoopika: Scoopika,
   inputs: RunInputs,
 ): Promise<{ new_inputs: RunInputs; context_message: string }> {
-  let message = "";
+  let message = inputs.message || "";
   let context_message = "";
 
   let data = inputs.context || [];
@@ -20,13 +20,16 @@ export default async function resolveInputs(
   }
 
   context_message = message;
+
   for (const item of data || []) {
     message = item.description + ":\n" + item.value + "\n" + message;
+    if (item.scope === "session")
+      context_message =
+        item.description + ":\n" + item.value + "\n" + context_message;
   }
 
-  for (const item of (data || []).filter((d) => d.scope === "session")) {
-    context_message = item.description + ":\n" + item.value + "\n" + message;
-  }
+  message = message.trim();
+  context_message = context_message.trim();
 
   if (message.length < 1) {
     return {
