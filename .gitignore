@@ -1,4 +1,9 @@
-.env
 node_modules
+*.log
 dist
-coverage
+dist-ssr
+*.local
+.env
+.cache
+test-results
+pgtests

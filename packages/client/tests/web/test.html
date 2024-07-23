@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <title></title>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link href="css/style.css" rel="stylesheet" />
+    <script src="../../dist/index.global.js"></script>
+    <script src="./index.js" defer></script>
+    <script>
+      const client = new Scoopika.Client("http://127.0.0.1:4149/scoopika");
+      const agent = new Scoopika.Agent(
+        "0aaa173e-d4c8-40e6-974a-ea5d3e3f1b09",
+        client,
+      );
+      const audioPlayer = new Scoopika.AudioPlayer(client);
+
+      const box = new Scoopika.Box(
+        "6e059cde-df83-41db-ad0d-c31c4ac99136",
+        client,
+      );
+
+      const setTrue = (id) => {
+        document.getElementById(id).innerText = "true";
+      };
+
+      (async () => {
+        const session_id = String(Math.random()) + String(Date.now());
+        const session = await client.store.newSession({
+          id: session_id,
+        });
+
+        if (session.id === session_id) {
+          setTrue("new_session");
+        }
+
+        const agent_data = await agent.load();
+        if (typeof agent_data.name === "string") {
+          setTrue("agent_loaded");
+        }
+
+        const response = await agent.run({
+          options: { session_id, voice: true },
+          inputs: {
+            message: "Hello, how are you doing? my name is Kais ",
+          },
+          hooks: {
+            onStart: () => {
+              setTrue("started");
+            },
+            onToken: (t) => {
+              setTrue("got_token");
+            },
+            onAudio: (a) => {
+              console.log(a);
+              audioPlayer.queue(a);
+            },
+          },
+        });
+
+        console.log(JSON.stringify(response));
+        const runs = await client.store.getSessionRuns(session_id);
+        if (runs.length === 2) {
+          setTrue("list_runs");
+        }
+
+        // const box_data = await box.load();
+        // if (typeof box_data.id === "string") {
+        //  setTrue("box_loaded");
+        //}
+      })();
+    </script>
+  </head>
+  <body>
+    <table style="border: 1px solid black; width: 100vw">
+      <thead>
+        <tr style="border: 1px solid black">
+          <th>Test name</th>
+          <th>Test status</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr style="text-align: center">
+          <td>New session</td>
+          <td id="new_session">false</td>
+        </tr>
+        <tr style="text-align: center">
+          <td>Load agent</td>
+          <td id="agent_loaded">false</td>
+        </tr>
+        <tr style="text-align: center">
+          <td>onStart hook</td>
+          <td id="started">false</td>
+        </tr>
+        <tr style="text-align: center">
+          <td>onToken hook</td>
+          <td id="got_token">false</td>
+        </tr>
+        <tr style="text-align: center">
+          <td>List runs</td>
+          <td id="list_runs">false</td>
+        </tr>
+        <tr style="text-align: center">
+          <td>Load box</td>
+          <td id="box_loaded">false</td>
+        </tr>
+      </tbody>
+    </table>
+  </body>
+</html>

@@ -1,0 +1,22 @@
+{
+  "name": "@scoopika/react",
+  "version": "2.0.1",
+  "description": "Build interactive AI-powered React applications around AI agents",
+  "main": "./dist/index.js",
+  "scripts": {
+    "build": "tsup --dts-resolve && node ../../build.js ."
+  },
+  "keywords": [
+    "AI", "AI Agent", "LLMs", "React"
+  ],
+  "author": "Kais Radwan",
+  "license": "MIT",
+  "dependencies": {
+    "@scoopika/client": "^2.0.0",
+    "@scoopika/types": "^3.0.0",
+    "react": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.3"
+  }
+}

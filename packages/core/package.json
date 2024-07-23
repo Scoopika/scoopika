@@ -1,0 +1,25 @@
+{
+  "name": "@scoopika/scoopika",
+  "version": "2.0.4",
+  "description": "",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "devDependencies": {
+    "dotenv": "^16.4.5",
+    "tsup": "^8.1.0",
+    "vitest": "^2.0.1"
+  },
+  "scripts": {
+    "test": "vitest --watch false --testTimeout 30000",
+    "build": "tsup --dts-resolve && node ../../build.js ."
+  },
+  "keywords": [],
+  "author": "Kais Radwan",
+  "license": "SCOOP PUBLIC",
+  "dependencies": {
+    "@scoopika/types": "^3.0.0",
+    "ajv": "^8.16.0",
+    "openai": "^4.52.4",
+    "zod-to-json-schema": "^3.23.1"
+  }
+}

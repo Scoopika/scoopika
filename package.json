@@ -1,37 +1,19 @@
 {
-  "name": "@scoopika/scoopika",
-  "version": "1.5.6",
-  "description": "Create AI agents that can see, hear, speak, take actions, and collaborate together. with long-term memory, custom external tools & APIs, and custom knowledge sources. With real-time streaming hooks, data validation, and smart errors recovery",
-  "main": "./index.js",
-  "types": "./index.d.ts",
-  "scripts": {
-    "build": "tsup --dts-resolve && cp ./package.json ./dist/ && cp ./README.md ./dist/",
-    "test": "tsc && rm -r ./dist && vitest --watch false --testTimeout 300000",
-    "coverage": "vitest run --coverage --testTimeout 500000",
-    "prettier": "bunx prettier --write ."
-  },
-  "author": "Kais Radwan",
-  "license": "OPEN SCOOP",
-  "keywords": [
-    "AI",
-    "Personalized AI Agents",
-    "Multi-agent Boxes",
-    "LLMs",
-    "Persistent LLMs history"
+  "name": "scoopika",
+  "private": true,
+  "workspaces": [
+    "packages/*"
   ],
+  "scripts": {
+    "prettier": "npx prettier \"./packages/**/*.ts\" --write",
+    "build_all": "node ./build_all.js"
+  },
   "devDependencies": {
-    "@scoopika/types": "^2.3.4",
-    "@types/node": "^20.12.7",
-    "@vitest/coverage-v8": "^1.5.0",
-    "dotenv": "^16.4.5",
-    "tsup": "^8.0.2",
-    "typescript": "^5.4.5",
-    "vitest": "^1.5.0"
+    "@types/node": "^20.14.10",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.5.3"
   },
   "dependencies": {
-    "ajv": "^8.12.0",
-    "openai": "^4.33.0",
-    "zod": "^3.23.8",
-    "zod-to-json-schema": "^3.23.1"
+    "@scoopika/scoopika": "^2.0.0"
   }
 }

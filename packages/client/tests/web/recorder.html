@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Voice Recorder with Visualization</title>
+    <style>
+        canvas {
+          display: flex;
+          align-items: center;
+          justify-items: center;
+          border: 1px solid #000;
+        }
+    </style>
+</head>
+<body>
+    <h1>Voice Recorder with Visualization</h1>
+    <button id="send">Send</button>
+    <button id="start">Start Recording</button>
+    <button id="stop" disabled>Stop Recording</button>
+    <button id="pause" disabled>Pause Recording</button>
+    <button id="resume" disabled>Resume Recording</button>
+    <p id="text"></p>
+    <canvas id="waveform" width="600" height="300"></canvas>
+    <audio id="player" controls>
+    <audio id="voice-player" >
+    <script src="../../dist/index.global.js">
+    </script>
+    <script defer>
+        document.addEventListener('DOMContentLoaded', async () => {
+            const startButton = document.getElementById('start');
+            const sendButton = document.getElementById('send');
+            const stopButton = document.getElementById('stop');
+            const pauseButton = document.getElementById('pause');
+            const resumeButton = document.getElementById('resume');
+            const canvas = document.getElementById('waveform');
+            const canvasCtx = canvas.getContext('2d');
+
+            const client = new Scoopika.Client("http://127.0.0.1:4149/scoopika");
+            const agent = new Scoopika.Agent(
+              "7bfdb069-6da6-4236-b54e-2fcb8a726644", client
+            );
+
+            const recorder = new Scoopika.VoiceRecorder({
+              onText: (t) => document.getElementById("text").innerText = t,
+              onAudioChunk: (a) => console.log(a)
+            });
+
+            const visualizer = new Scoopika.VoiceVisualizer("voice-player", canvas);
+
+            sendButton.addEventListener('click', async () => {
+            recorder.stop();
+              const audioInput = await recorder.asRunInput();
+              console.log(audioInput);
+              const player = new Scoopika.RunVoicePlayer("voice-player");
+              visualizer.getReady(canvas);
+              const start = Date.now();
+              const response = await agent.run({
+                options: {voice: true},
+                inputs: audioInput,
+                hooks: {
+                  onToken: (t) => console.log("got token after:", Date.now() - start),
+                  onAudio: (a) => {
+                    player.queue(a);
+                  }
+                }
+              })
+
+              await player.finish();
+              console.log(response);
+            })
+
+            startButton.addEventListener('click', () => {
+                recorder.start();
+                startButton.disabled = true;
+                stopButton.disabled = false;
+                pauseButton.disabled = false;
+                resumeButton.disabled = true;
+            });
+
+            stopButton.addEventListener('click', async () => {
+                recorder.stop();
+                const elm = document.getElementById("player");
+                elm.src = recorder.getObjectUrl();
+                document.getElementById("text").innerText = recorder.text;
+                startButton.disabled = false;
+                stopButton.disabled = true;
+                pauseButton.disabled = true;
+                resumeButton.disabled = true;
+                canvasCtx.clearRect(0, 0, canvas.width, canvas.height);
+            });
+
+            pauseButton.addEventListener('click', () => {
+                recorder.pause();
+                const elm = document.getElementById("player");
+                elm.src = recorder.getObjectUrl();
+                pauseButton.disabled = true;
+                resumeButton.disabled = false;
+            });
+
+            resumeButton.addEventListener('click', () => {
+                recorder.resume();
+                pauseButton.disabled = false;
+                resumeButton.disabled = true;
+            });
+        });
+    </script>
+</body>
+</html>

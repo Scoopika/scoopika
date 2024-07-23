@@ -1,0 +1,6 @@
+[
+  "./packages/types/",
+  "./packages/core/",
+  "./packages/client/",
+  "./packages/react/"
+]

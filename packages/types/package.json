@@ -1,0 +1,17 @@
+{
+  "name": "@scoopika/types",
+  "version": "3.0.3",
+  "description": "",
+  "main": "",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "npx tsup --dts-resolve && node ../../build.js ."
+  },
+  "keywords": [],
+  "author": "Kais Radwan",
+  "license": "MIT",
+  "dependencies": {
+    "openai": "^4.52.3",
+    "zod": "^3.23.8"
+  }
+}
