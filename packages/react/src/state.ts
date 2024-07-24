@@ -226,7 +226,7 @@ export function useChatState(
       setGenerating(false);
       const { data: messages, error } =
         await clientInstance.store.getSessionRuns(session);
-      if (error === null) setMessages(messages);
+      if (error === null) setMessages(messages || []);
       if (state_options?.scroll) state_options.scroll();
     }
   };

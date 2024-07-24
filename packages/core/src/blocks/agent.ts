@@ -27,14 +27,18 @@ export class Agent {
   private memory: Store;
   private model: Model | null = null;
 
-  constructor(id: string, scoopika: Scoopika) {
+  constructor(id: string, scoopika: Scoopika, agent?: AgentData) {
     this.scoopika = scoopika;
     this.url = scoopika.getUrl() + `/main/agent/${id}`;
     this.id = id;
     this.memory = scoopika.memory;
+
+    if (agent) this.agent = agent;
   }
 
   async load() {
+    if (this.agent) return this.agent;
+
     const res = await fetch(this.url, {
       headers: {
         authorization: this.scoopika.getToken(),
