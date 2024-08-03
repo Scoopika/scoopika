@@ -1,6 +1,6 @@
 {
   "name": "@scoopika/react",
-  "version": "2.0.1",
+  "version": "2.0.2",
   "description": "Build interactive AI-powered React applications around AI agents",
   "main": "./dist/index.js",
   "scripts": {

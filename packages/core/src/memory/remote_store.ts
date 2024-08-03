@@ -123,8 +123,16 @@ export class RemoteStore implements Store {
     return res.data;
   }
 
+  async checkSession(id: string) {
+    const session = await this.getSession(id);
+    if (session) return;
+
+    await this.newSession({ id });
+  }
+
   async getRuns(session: StoreSession | string): Promise<RunHistory[]> {
     const id = typeof session === "string" ? session : session.id;
+    await this.checkSession(id);
     const res = await this.request<ReqResponse<RunHistory[]>>(
       `run/${id}`,
       "GET",
@@ -141,6 +149,7 @@ export class RemoteStore implements Store {
 
   async pushRun(session: StoreSession | string, run: RunHistory) {
     const id = typeof session === "string" ? session : session.id;
+    await this.checkSession(id);
 
     const res = await this.request<ReqResponse<unknown>>(`run/${id}`, "POST", {
       history: [run],
@@ -153,6 +162,7 @@ export class RemoteStore implements Store {
 
   async batchPushRuns(session: StoreSession | string, runs: RunHistory[]) {
     const id = typeof session === "string" ? session : session.id;
+    await this.checkSession(id);
 
     const res = await this.request<ReqResponse<unknown>>(`run/${id}`, "POST", {
       history: [...runs],

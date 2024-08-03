@@ -9,3 +9,4 @@ export * from "./history";
 export * from "./scoopika";
 export * from "./block";
 export * from "./server_request";
+export * from "./agent_request";

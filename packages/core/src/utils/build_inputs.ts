@@ -5,6 +5,7 @@ import { readAudio } from "./read_audio";
 export async function buildInputs(
   scoopika: Scoopika,
   inputs: RunInputs,
+  knowledge?: string
 ): Promise<{
   new_inputs: RunInputs;
   context_message: string;
@@ -35,7 +36,7 @@ export async function buildInputs(
 
   // Scrape websites concurrently
   const websitesPromise = scoopika.scrape(inputs.urls || []);
-  const ragPromise = scoopika.rag(message);
+  const ragPromise = scoopika.rag(message, knowledge);
 
   const [audio_urls, websites, rag] = await Promise.all([
     Promise.all(audioPromises),

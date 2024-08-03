@@ -5,35 +5,15 @@ import executeAction from "./lib/actions_executer";
 import { z } from "zod";
 import { createAction } from "./actions/create_action";
 import madeActionToFunctionTool from "./lib/made_action_to_function_tool";
-import zodToJsonSchema from "zod-to-json-schema";
 import { createSchema } from "./lib/create_schema";
 
-export class Agent {
-  id: string;
+export class AgentClient {
   client: Client;
   client_actions: types.ToolSchema[] = [];
   paused_runs: string[] = [];
 
-  constructor(id: string, client: Client) {
-    this.id = id;
-    this.client = client;
-  }
-
-  async load() {
-    let response: string = "";
-    const onMessage = (s: string) => (response += s);
-
-    const req: types.LoadAgentRequest = {
-      type: "load_agent",
-      payload: {
-        id: this.id,
-      },
-    };
-
-    await this.client.request(req, onMessage);
-    const agent = this.client.readResponse<types.AgentData>(response);
-
-    return agent;
+  constructor(endpoint: string) {
+    this.client = new Client(endpoint);
   }
 
   async run({
@@ -66,10 +46,9 @@ export class Agent {
 
     const used_hooks = Object.keys(hooks) as (keyof types.Hooks)[];
 
-    const req: types.RunAgentRequest = {
+    const req: types.TextGenerationRequest = {
       type: "run_agent",
       payload: {
-        id: this.id,
         inputs,
         options: {
           ...(options || {}),
@@ -108,10 +87,9 @@ export class Agent {
 
     const json_schema = createSchema(args.schema);
 
-    const request: types.AgentGenerateJSONRequest = {
+    const request: types.AgentJSONGenerationRequest = {
       type: "agent_generate_json",
       payload: {
-        id: this.id,
         ...args,
         schema: json_schema,
       },

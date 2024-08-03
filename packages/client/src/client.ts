@@ -1,4 +1,4 @@
-import { ServerRequest } from "@scoopika/types";
+import { AgentRequest, ServerRequest } from "@scoopika/types";
 import readStreamChunk from "./lib/read_stream";
 import { Store } from "./store";
 
@@ -28,7 +28,7 @@ export class Client {
     this.store = new Store(this);
   }
 
-  async request(req: ServerRequest, onMessage: (msg: string) => any) {
+  async request(req: ServerRequest | AgentRequest, onMessage: (msg: string) => any) {
     const options = {
       method: "POST",
       headers: {

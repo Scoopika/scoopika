@@ -70,24 +70,25 @@ export class Scoopika {
     }
   }
 
-  getUrl() {
+  public getUrl() {
     return this.url;
   }
 
-  getToken() {
+  public getToken() {
     return this.token;
   }
 
-  connectProvider(name: ProvidersName, api_key: string) {
+  public connectProvider(name: ProvidersName, api_key: string) {
     this.providers[name] = {
-      type: name === "anthropic" ? "anthropic" : "openai",
+      // type: name === "anthropic" ? "anthropic" : "openai",
+      type: "openai",
       name,
       apiKey: api_key,
       baseURL: this.providers_urls[name],
     };
   }
 
-  addProvider(provider: SavedProvider) {
+  public addProvider(provider: SavedProvider) {
     this.providers[provider.name] = provider;
   }
 
@@ -243,14 +244,15 @@ export class Scoopika {
     return { text: data.text, url: data.url };
   }
 
-  async rag(text: string): Promise<string> {
+  public async rag(text: string, id?: string): Promise<string> {
+    const knowledge = id || this.knowledge;
     try {
-      if (!this.knowledge) {
+      if (!knowledge) {
         return "";
       }
 
       const res = await fetch(
-        `${this.url}/pro/query-knowledge/${this.knowledge}`,
+        `${this.url}/pro/query-knowledge/${knowledge}`,
         {
           method: "POST",
           headers: { authorization: this.token },
@@ -271,7 +273,7 @@ export class Scoopika {
     }
   }
 
-  async scrape(urls: string[]): Promise<string[]> {
+  public async scrape(urls: string[]): Promise<string[]> {
     if (urls.length < 1) {
       return [];
     }

@@ -1,78 +1,51 @@
 import {
-  AgentData,
-  AgentToolSchema,
   CoreTool,
   Hooks,
-  InTool,
   ModelObjectResponse,
   ModelTextResponse,
   RunInputs,
   RunOptions,
   Store,
   ToolSchema,
+  AgentModelConfig,
+  TextGenerationRequest,
+  AgentJSONGenerationRequest,
+  Voice,
 } from "@scoopika/types";
 import { z } from "zod";
 import { Scoopika } from "../scoopika";
-import { agentAsTool, createTool, toolToFunctionTool } from "../utils";
+import { createTool, readError, toolToFunctionTool } from "../utils";
 import { defaultBlockInputs, newBlockBuilder } from "./block";
 import { Model } from "../model";
 import { JSONSchema } from "openai/lib/jsonschema";
+import { randomUUID } from "node:crypto";
+import serverHooks from "../server/server_hooks";
+import { readMemoryStore } from "../memory";
 
 export class Agent {
-  agent: AgentData | null = null;
   private scoopika: Scoopika;
-  id: string;
-  private url: string;
   private tools: ToolSchema[] = [];
   private memory: Store;
-  private model: Model | null = null;
+  private model: string;
+  private provider: string;
+  public prompt: string;
+  private knowledge?: string;
+  private voice: Voice = "aura-orpheus-en";
 
-  constructor(id: string, scoopika: Scoopika, agent?: AgentData) {
+  constructor(
+    scoopika: Scoopika,
+    { provider, model, prompt, knowledge, memory, voice }: AgentModelConfig,
+  ) {
     this.scoopika = scoopika;
-    this.url = scoopika.getUrl() + `/main/agent/${id}`;
-    this.id = id;
-    this.memory = scoopika.memory;
-
-    if (agent) this.agent = agent;
+    this.prompt = prompt;
+    this.provider = provider;
+    this.model = model;
+    this.memory = readMemoryStore(memory ?? scoopika.memory, scoopika.getToken(), scoopika.getUrl());
+    if (knowledge) this.knowledge = knowledge;
+    if (voice) this.voice = voice;
   }
 
-  async load() {
-    if (this.agent) return this.agent;
-
-    const res = await fetch(this.url, {
-      headers: {
-        authorization: this.scoopika.getToken(),
-      },
-    });
-
-    const status = res.status;
-    const data = await res.json();
-
-    if (!data?.agent) {
-      throw new Error(
-        data?.error ||
-          `Unknown remote error while loading agent. status: ${status}`,
-      );
-    }
-
-    const agent = data.agent as AgentData;
-
-    if (agent.in_tools?.length || 0 > 0) {
-      await this.buildInTools(agent, agent.in_tools || []);
-    }
-
-    this.agent = agent;
-
-    this.model = new Model({
-      scoopika: this.scoopika,
-      provider: agent.prompts[0].llm_client as any,
-      model: agent.prompts[0].model,
-    });
-
-    return agent;
-  }
-
-  async textBlock(agent: AgentData) {
+  private async textBlock() {
     const builder = newBlockBuilder({
       inputs: z.object({
         ...defaultBlockInputs,
@@ -81,8 +54,7 @@ export class Agent {
 
     const agent_tools = this.tools;
     const Block = builder.compile(
-      `You are an AI assistant called ${agent.name}. ` +
-        agent.prompts[0].content,
+      this.prompt,
       async ({ prompt, model, inputs, tools }) => {
         const { data, error } = await model.generateText({
           prompt,
@@ -98,16 +70,18 @@ export class Agent {
       },
     );
 
-    const block = new Block(agent.id, this.scoopika, {
-      provider: agent.prompts[0].llm_client,
-      model: agent.prompts[0].model,
+    const block = new Block(`${randomUUID()}`, this.scoopika, {
+      provider: this.provider,
+      model: this.model,
       memory: this.memory,
+      knowledge: this.knowledge,
+      voice: this.voice
     });
 
     return block;
   }
 
-  jsonBlock(agent: AgentData) {
+  private jsonBlock() {
     const builder = newBlockBuilder({
       inputs: z.object({
         ...defaultBlockInputs,
@@ -118,8 +92,7 @@ export class Agent {
     });
 
     const Block = builder.compile(
-      `You are an AI assistant called ${agent.name}. ` +
-        agent.prompts[0].content,
+      this.prompt,
       async ({ prompt, model, inputs }) => {
         const { data, error } = await model.generateObject({
           ...inputs,
@@ -136,10 +109,11 @@ export class Agent {
       },
     );
 
-    const block = new Block(agent.id, this.scoopika, {
-      provider: agent.prompts[0].llm_client,
-      model: agent.prompts[0].model,
+    const block = new Block(`${randomUUID()}`, this.scoopika, {
+      provider: this.provider,
+      model: this.model,
       memory: this.memory,
+      knowledge: this.knowledge
     });
 
     return block;
@@ -154,8 +128,7 @@ export class Agent {
     options?: RunOptions;
     hooks?: Hooks;
   }): Promise<ModelTextResponse> {
-    const agent = this.agent || (await this.load());
-    const block = await this.textBlock(agent);
+    const block = await this.textBlock();
 
     return (await block.run({ inputs, options, hooks })) as ModelTextResponse;
   }
@@ -176,8 +149,7 @@ export class Agent {
     prompt?: string;
     max_tries?: number;
   }) {
-    const agent = this.agent || (await this.load());
-    const block = this.jsonBlock(agent);
+    const block = this.jsonBlock();
 
     return (await block.run({
       inputs: { ...inputs, schema, prompt, max_tries },
@@ -192,11 +164,10 @@ export class Agent {
     prompt?: string;
     max_tries?: number;
   }) {
-    const agent = this.agent || (await this.load());
     const model = new Model({
       scoopika: this.scoopika,
-      provider: agent.prompts[0].llm_client as any,
-      model: agent.prompts[0].model,
+      provider: this.provider as any,
+      model: this.model,
     });
 
     const data = await model.generateObjectWithSchema(args);
@@ -217,69 +188,61 @@ export class Agent {
     this.tools = this.tools.filter((t) => t.tool.function.name !== name);
   }
 
-  public async addAgentAsTool(agent: Agent) {
-    const agent_tool = await agent.asTool();
-    this.tools.push(agent_tool);
+  async serve({
+    request,
+    stream,
+    end,
+  }: {
+    request: Record<string, any> | unknown;
+    stream: (value: string) => any;
+    end?: () => any;
+  }) {
+    try {
+      const req = request as any;
 
-    return this;
-  }
-
-  private async buildInTools(agent: AgentData, in_tools: InTool[]) {
-    for (const tool of in_tools) {
-      if (tool.type === "agent") {
-        const agent = new Agent(tool.id, this.scoopika);
-        await this.addAgentAsTool(agent);
-        continue;
+      if (req.type == "run_agent") {
+        return await this.handleTextGeneration(req, stream);
       }
 
-      const headers: Record<string, string> = {};
-      tool.headers.forEach((h) => {
-        headers[h.key] = h.value;
-      });
+      if (req.type === "agent_generate_json") {
+        return await this.handleJSONGeneration(req, stream);
+      }
 
-      this.tools = [
-        ...(this.tools.filter((t) => t.tool.function.name !== tool.name) || []),
-        {
-          type: "api",
-          url: tool.url,
-          method: tool.method,
-          headers,
-          body: tool.body,
-          tool: {
-            type: "function",
-            function: {
-              name: tool.name,
-              description: tool.description,
-              parameters: tool.inputs,
-            },
-          },
-        },
-      ];
+      throw new Error(
+        `Invalid request: ${JSON.stringify(req, null, 4)}\n\nMake sure you have the latest version of Scoopika`,
+      );
+    } catch (err: any) {
+      console.error(err);
+      await stream(this.streamMessage(null, readError(err)));
+    } finally {
+      if (end) end();
     }
   }
 
-  public async asTool(): Promise<AgentToolSchema> {
-    const agent = this.agent || (await this.load());
-    const runFunc = this.run.bind(this);
+  private async handleTextGeneration(
+    request: TextGenerationRequest,
+    stream: (v: string) => any,
+  ) {
+    await this.run({
+      inputs: request.payload.inputs,
+      options: request.payload.options,
+      hooks: serverHooks(request.payload.hooks, stream),
+    });
+  }
 
-    const executor: AgentToolSchema["executor"] = async (
-      session_id: string,
-      run_id: string,
-      instructions: string,
-    ) => {
-      const { data, error } = await runFunc({
-        options: { session_id, run_id, save_history: false },
-        inputs: {
-          message: instructions,
-        },
-      });
+  private async handleJSONGeneration(
+    request: AgentJSONGenerationRequest,
+    stream: (v: string) => any,
+  ) {
+    const { data, error } = await this.generateObjectWithSchema(
+      request.payload,
+    );
 
-      if (error !== null) return error;
+    await stream(this.streamMessage(data, error));
+  }
 
-      return data.content;
-    };
-
-    const tool = agentAsTool(agent, executor);
-    return tool;
+  private streamMessage(data: any, error: string | null = null) {
+    const msg = { data, error };
+    return `<SCOOPSTREAM>${JSON.stringify(msg)}</SCOOPSTREAM>`;
   }
 }

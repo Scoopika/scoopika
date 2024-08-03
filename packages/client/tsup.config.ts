@@ -7,5 +7,5 @@ export default defineConfig({
   splitting: false,
   sourcemap: false,
   clean: true,
-  globalName: "Scoopika"
+  globalName: "Scoopika",
 });

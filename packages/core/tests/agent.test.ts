@@ -1,16 +1,27 @@
 import { test, expect, expectTypeOf } from "vitest";
 import { Scoopika, Agent } from "../src";
-import { getEnv } from "../src/utils";
 import { z } from "zod";
+import { getEnv } from "../src/utils";
 
 const scoopika = new Scoopika();
+scoopika.connectProvider("groq", getEnv("GROQ", true) as string);
 
-const agent = new Agent(getEnv("AGENT_ID", true) as string, scoopika);
+const agent = new Agent(scoopika, {
+  provider: "groq",
+  model: "llama-3.1-70b-versatile",
+  prompt: "You are a helpful AI assistant",
+});
 
-test("Load Scoopika AI agent data (Fireworks))", async () => {
-  const agent_data = await agent.load();
-
-  expect(agent_data.id).toBe(getEnv("AGENT_ID", true));
+agent.addTool({
+  name: "get_user",
+  description: "Retrieve the user associated with a user ID if asked to",
+  parameters: z.object({
+    id: z.string().describe("The user ID to get the user name for"),
+  }),
+  execute: ({ id }) => {
+    console.log("Called tool with ID:", id);
+    return { name: "Kais Radwan" };
+  },
 });
 
 test("Run Scoopika AI agent: Text generation", async () => {

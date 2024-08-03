@@ -1,7 +1,5 @@
 import {
-  Agent,
-  Model,
-  Client,
+  AgentClient,
   RunVoicePlayer,
   VoiceRecorder,
   VoiceVisualizer,
@@ -20,11 +18,10 @@ export interface UseVoiceChatStateOptions extends UseChatStateOptions {
 }
 
 export function useVoiceChatState(
-  client: Client,
-  agent: Agent | Model,
+  agent: string | AgentClient,
   state_options: UseVoiceChatStateOptions = {},
 ) {
-  const chatState = useChatState(client, agent, state_options);
+  const chatState = useChatState(agent, state_options);
 
   const [agentVoicePlayer, setAgentVoicePlayer] =
     useState<RunVoicePlayer | null>(null);

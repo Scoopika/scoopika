@@ -1,4 +1,4 @@
-import { Agent, Client, Model } from "@scoopika/client";
+import { AgentClient } from "@scoopika/client";
 import {
   ModelRunHistory,
   VoiceResponse,
@@ -9,12 +9,13 @@ import {
   RunOptions,
   UserRunHistory,
 } from "@scoopika/types";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import sleep from "./utils/sleep";
 
 export interface UseChatStateOptions {
   session_id?: string;
   scroll?: () => any;
+  messages?: RunHistory[];
 }
 
 const setupRequest = (
@@ -71,52 +72,26 @@ const sortedMessages = (messages: RunHistory[]) =>
   messages.sort((a, b) => a.at - b.at);
 
 export function useChatState(
-  client: Client,
-  agent: string | Agent | Model,
+  agent: string | AgentClient,
   state_options?: UseChatStateOptions,
 ) {
   if (typeof agent === "string") {
-    agent = new Agent(agent, client);
+    agent = new AgentClient(agent);
   }
 
-  const [clientInstance] = useState(client);
   const [agentInstance] = useState(agent);
 
   // state
   const [session, setSession] = useState<string>(
     state_options?.session_id ?? "session_" + crypto.randomUUID(),
   );
-  const [loadingSession, setLoadingSession] = useState<boolean>(false);
   const [status, setStatus] = useState<string | undefined>();
   const [generating, setGenerating] = useState<boolean>(false);
   const [loading, setLoading] = useState<boolean>(false);
-  const [messages, setMessages] = useState<RunHistory[]>([]);
+  const [messages, setMessages] = useState<RunHistory[]>(state_options?.messages || []);
   const [streamPlaceholder, setStreamPlaceholder] = useState<
     ModelRunHistory | undefined
   >(undefined);
-
-  const getSessionMessages = async (id: string) => {
-    setLoadingSession(true);
-    const { data: messages, error } =
-      await clientInstance.store.getSessionRuns(id);
-    if (error === null) setMessages(messages);
-    setLoadingSession(false);
-    if (state_options?.scroll) {
-      scroll();
-    }
-  };
-
-  const changeSession = async (session?: string) => {
-    const id = session ?? crypto.randomUUID();
-    setSession(id);
-    await getSessionMessages(id);
-  };
-
-  useEffect(() => {
-    if (state_options?.session_id) {
-      getSessionMessages(state_options.session_id);
-    }
-  }, []);
 
   const newRequest = async ({
     inputs = {},
@@ -196,11 +171,13 @@ export function useChatState(
         },
         onModelResponse: async (response) => {
           setStatus(undefined);
-          const { data: messages, error } =
-            await clientInstance.store.getSessionRuns(session);
           setStreamPlaceholder(undefined);
-          if (error === null) setMessages(sortedMessages(messages));
-          if (hooks?.onModelResponse) hooks.onModelResponse(response)
+          if (response.error === null) {
+            setMessages(prev => sortedMessages(
+              [...prev, agentPlaceholder(response.data)]
+            ));
+          }
+          if (hooks?.onModelResponse) hooks.onModelResponse(response);
         },
       };
 
@@ -224,9 +201,6 @@ export function useChatState(
       setStatus(undefined);
       setLoading(false);
       setGenerating(false);
-      const { data: messages, error } =
-        await clientInstance.store.getSessionRuns(session);
-      if (error === null) setMessages(messages || []);
       if (state_options?.scroll) state_options.scroll();
     }
   };
@@ -238,11 +212,12 @@ export function useChatState(
     streamPlaceholder,
 
     messages,
+    setMessages,
+
     newRequest,
     agent,
 
     session,
-    changeSession,
-    loadingSession,
+    setSession,
   };
 }

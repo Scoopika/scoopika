@@ -27,7 +27,7 @@ import {
   toolSchemaToLLMTool,
   validate,
 } from "./utils";
-import { InMemoryStore } from "./memory";
+import { InMemoryStore, readMemoryStore } from "./memory";
 import { randomUUID } from "crypto";
 import { generate_object_prompt } from "./prompts";
 import { z } from "zod";
@@ -41,20 +41,26 @@ export class Model {
   model: string;
   private memoryStore: Store = new InMemoryStore();
   private voice: Voice | undefined = undefined;
+  private knowledge?: string;
 
   constructor({
     scoopika,
     provider,
     model,
+    knowledge,
+    memory
   }: {
     scoopika: Scoopika;
     provider: ProvidersName;
     model: string;
+    knowledge?: string;
+    memory?: Store;
   }) {
     this.scoopika = scoopika;
     this.provider = provider;
     this.model = model;
-    this.memoryStore = scoopika.memory;
+    this.memoryStore = readMemoryStore(memory ?? scoopika.memory, scoopika.getToken(), scoopika.getUrl());
+    this.knowledge = knowledge;
   }
 
   private async getLLMClient() {
@@ -84,6 +90,7 @@ export class Model {
     const { new_inputs, context_message } = await buildInputs(
       this.scoopika,
       inputs,
+      this.knowledge
     );
     const messages = await this.getHistory({
       options: { ...options, session_id },
